@@ -9,5 +9,5 @@ tldextract>=5.1,<6.0
 requests>=2.32,<3.0
 django-storages>=1.14,<2.0
 boto3>=1.35,<2.0
-gunicorn>=23.0,<24.0
+gunicorn>=23.0,<26.0
 whitenoise>=6.8,<7.0
