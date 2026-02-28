@@ -7,6 +7,7 @@ from django.db import transaction
 from django.http import Http404
 from django.urls import reverse
 from django.utils import timezone
+import requests
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -62,6 +63,69 @@ def _token_response_payload(token_pair) -> dict:
         'refresh_token_expires_in': refresh_expires_in,
         'refresh_token_expires_at': token_pair.refresh_token_expires_at,
     }
+
+
+def _deliver_feedback_email_http(
+    *,
+    subject: str,
+    body: str,
+    recipients: list[str],
+) -> bool:
+    token = str(getattr(settings, 'POSTMARK_SERVER_TOKEN', '') or '').strip()
+    if not token:
+        return False
+
+    from_email = str(getattr(settings, 'DEFAULT_FROM_EMAIL', '') or '').strip()
+    if not from_email:
+        from_email = 'noreply@safespend.local'
+
+    api_base = str(getattr(settings, 'POSTMARK_API_BASE', 'https://api.postmarkapp.com') or 'https://api.postmarkapp.com').rstrip('/')
+    timeout = int(getattr(settings, 'POSTMARK_TIMEOUT', 8) or 8)
+    response = requests.post(
+        f'{api_base}/email',
+        headers={
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-Postmark-Server-Token': token,
+        },
+        json={
+            'From': from_email,
+            'To': ','.join(recipients),
+            'Subject': subject,
+            'TextBody': body,
+        },
+        timeout=timeout,
+    )
+    if response.ok:
+        return True
+
+    detail = ''
+    try:
+        detail = response.text[:400]
+    except Exception:
+        detail = ''
+    raise RuntimeError(f'Postmark API delivery failed ({response.status_code}): {detail}')
+
+
+def _deliver_feedback_email_smtp(
+    *,
+    subject: str,
+    body: str,
+    recipients: list[str],
+) -> bool:
+    connection = get_connection(
+        fail_silently=False,
+        timeout=int(getattr(settings, 'EMAIL_TIMEOUT', 8) or 8),
+    )
+    send_mail(
+        subject=subject,
+        message=body,
+        from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None),
+        recipient_list=recipients,
+        fail_silently=False,
+        connection=connection,
+    )
+    return True
 
 
 class HealthAPIView(APIView):
@@ -133,21 +197,23 @@ class FeedbackSubmitAPIView(APIView):
         delivered = False
         if recipients:
             try:
-                connection = get_connection(
-                    fail_silently=False,
-                    timeout=int(getattr(settings, 'EMAIL_TIMEOUT', 8) or 8),
-                )
-                send_mail(
+                # Prefer HTTPS delivery (works on Railway free tiers).
+                delivered = _deliver_feedback_email_http(
                     subject=email_subject,
-                    message=email_body,
-                    from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None),
-                    recipient_list=recipients,
-                    fail_silently=False,
-                    connection=connection,
+                    body=email_body,
+                    recipients=recipients,
                 )
-                delivered = True
             except (Exception, SystemExit):
-                logger.exception('Feedback submission email delivery failed.')
+                logger.exception('Postmark HTTPS delivery failed.')
+                if bool(getattr(settings, 'FEEDBACK_SMTP_FALLBACK', False)):
+                    try:
+                        delivered = _deliver_feedback_email_smtp(
+                            subject=email_subject,
+                            body=email_body,
+                            recipients=recipients,
+                        )
+                    except (Exception, SystemExit):
+                        logger.exception('Feedback submission SMTP fallback failed.')
 
         if not delivered:
             logger.info('Feedback submission recorded without email delivery: %s', email_body)
