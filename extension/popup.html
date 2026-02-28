@@ -8,19 +8,26 @@
   </head>
   <body>
     <main class="container">
-      <header class="header">
-        <h1>SafeSpend</h1>
-        <p class="subtitle">Shopping risk summary</p>
+      <header class="header-row">
+        <div>
+          <h1>SafeSpend</h1>
+          <p class="subtitle">Store safety at a glance</p>
+        </div>
+        <div class="header-links">
+          <button id="feedbackBtn" class="link-btn" type="button">Feedback</button>
+          <button id="openOptions" class="link-btn" type="button">Settings</button>
+        </div>
       </header>
 
-      <section id="authState" class="auth-card info">Checking sign-in status...</section>
-      <div class="actions-row">
-        <button id="connectBtn" class="primary hidden" type="button">Connect SafeSpend</button>
-        <button id="registerBtn" class="primary secondary hidden" type="button">Create Account</button>
-        <button id="openOptions" class="link-btn" type="button">Settings</button>
-      </div>
+      <section class="site-card">
+        <div class="site-top">
+          <p class="eyebrow">Current site</p>
+          <span id="siteKindPill" class="pill neutral">Checking...</span>
+        </div>
+        <p id="siteDomain" class="site-domain">-</p>
+      </section>
 
-      <section id="status" class="status info">Loading current tab...</section>
+      <section id="status" class="status hidden"></section>
       <section id="scanActivity" class="scan-activity hidden" aria-live="polite">
         <div class="scan-head">
           <span class="scan-dot"></span>
@@ -31,34 +38,65 @@
         </div>
       </section>
 
-      <section id="summary" class="summary hidden">
-        <div class="score-row">
-          <span class="label">Risk Score</span>
-          <span id="riskScore" class="risk-score">-</span>
+      <section id="summaryCard" class="summary-card hidden">
+        <div class="score-wrap">
+          <div id="riskScore" class="risk-score">-</div>
+          <div class="score-meta">
+            <p class="eyebrow">Risk Score</p>
+            <p id="trustLevel" class="trust-level">-</p>
+            <p id="trustHint" class="trust-hint">-</p>
+          </div>
         </div>
-        <div class="score-row">
-          <span class="label">Trust Level</span>
-          <span id="trustLevel" class="trust-level">-</span>
+        <div id="reputationBanner" class="reputation-banner hidden"></div>
+        <div id="verifiedBadgeWrap" class="verified-badge-wrap hidden">
+          <button id="verifiedBadgeBtn" class="verified-badge" type="button" title="">Verified Brand Domain</button>
+          <p id="verifiedBadgeDetail" class="verified-badge-detail hidden"></p>
         </div>
-        <div class="score-row">
-          <span class="label">Confidence</span>
-          <span id="scoreConfidence" class="meta-value">-</span>
+        <div id="previewBanner" class="preview-banner hidden">
+          Limited checks only: this preview may be less reliable. Sign in for full backend verification and detailed evidence.
         </div>
-        <div class="score-row">
-          <span class="label">Scanned At</span>
-          <span id="lastScannedAt" class="meta-value">-</span>
+        <div id="cooldownBanner" class="preview-banner hidden">
+          Showing a recent cached result to reduce repeated rescans while you navigate.
+        </div>
+        <div id="scanNowRow" class="actions-row hidden">
+          <button id="scanNowBtn" class="primary secondary" type="button">Scan Now</button>
         </div>
       </section>
 
-      <section id="reasons" class="reasons hidden">
-        <h2>Top Reasons</h2>
+      <section id="reasonsCard" class="card hidden">
+        <h2>Top Signals</h2>
         <ul id="reasonsList"></ul>
       </section>
 
-      <section id="details" class="details hidden">
-        <button id="loadDetailsBtn" class="toggle" type="button">Load Detailed Breakdown</button>
-        <ul id="detailsList" class="hidden"></ul>
+      <section id="authPanel" class="card auth-panel hidden">
+        <p id="authState" class="auth-copy">Checking sign-in status...</p>
+        <div class="actions-row">
+          <button id="connectBtn" class="primary hidden" type="button">Connect SafeSpend</button>
+          <button id="registerBtn" class="primary secondary hidden" type="button">Create Account</button>
+        </div>
       </section>
+
+      <section id="forceCheckCard" class="card hidden">
+        <p id="forceCheckCopy" class="auth-copy">This site category is not indexed yet. Run a private force check anyway.</p>
+        <div class="actions-row">
+          <button id="forceCheckBtn" class="primary secondary" type="button">Run Private Force Check</button>
+        </div>
+      </section>
+
+      <details id="advancedSection" class="advanced hidden">
+        <summary>Advanced details</summary>
+        <div class="advanced-content">
+          <div class="meta-grid">
+            <span>Confidence</span>
+            <strong id="scoreConfidence">-</strong>
+            <span>Scanned</span>
+            <strong id="lastScannedAt">-</strong>
+          </div>
+          <button id="loadDetailsBtn" class="toggle" type="button">Show Detailed Checks</button>
+          <button id="hideAdvancedBtn" class="toggle hidden" type="button">Hide Advanced Details</button>
+          <ul id="detailsList" class="details-list hidden"></ul>
+        </div>
+      </details>
 
       <footer class="footer">
         <p id="disclaimerText">Risk score is informational only.</p>

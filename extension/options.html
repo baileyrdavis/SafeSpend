@@ -10,30 +10,16 @@
     <main class="page">
       <header>
         <h1>SafeSpend Settings</h1>
-        <p>Simple setup for backend connection, sign-in, and cache controls.</p>
+        <p>Simple controls for account, scanning, and safety.</p>
       </header>
 
       <section class="card">
-        <h2>Backend</h2>
-        <label for="apiBaseUrl">API Base URL</label>
-        <input id="apiBaseUrl" type="url" placeholder="https://your-backend.example.com" />
-
-        <div class="actions">
-          <button id="saveBtn" type="button">Save Settings</button>
-          <button id="testBtn" type="button">Test Connection</button>
-        </div>
-      </section>
-
-      <section class="card">
         <h2>Account Connection</h2>
-        <p id="authSummary" class="auth-summary">Checking account status...</p>
+        <p id="authSummary" class="auth-summary"><span id="authSummaryText">Checking account status...</span><span id="authCheckingSpinner" class="loading-dot hidden" aria-hidden="true"></span></p>
         <div class="actions">
           <button id="connectBtn" type="button">Connect SafeSpend</button>
           <button id="registerBtn" class="hidden" type="button">Create Account</button>
           <button id="signOutBtn" class="secondary hidden" type="button">Sign Out</button>
-        </div>
-        <div class="actions">
-          <button id="deleteAccountBtn" class="danger hidden" type="button">Delete Account and Data</button>
         </div>
       </section>
 
@@ -43,7 +29,61 @@
         <input id="cacheTtlHours" type="number" min="1" max="72" />
 
         <div class="actions">
+          <button id="saveCacheBtn" type="button">Save Cache Settings</button>
           <button id="clearCacheBtn" type="button">Clear Cached Results</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Ongoing Scans</h2>
+        <p class="hint">Live view of scans currently running in the extension worker.</p>
+        <div id="ongoingScansEmpty" class="hint">No active scans right now.</div>
+        <div id="ongoingScansList" class="scan-list hidden"></div>
+      </section>
+
+      <section id="feedbackCard" class="card hidden">
+        <h2>Requests and Feedback</h2>
+        <p class="hint">Request verified sites, report bugs, or send product feedback.</p>
+        <label for="feedbackCategory">Type</label>
+        <select id="feedbackCategory">
+          <option value="verified_site_request">Request verified site</option>
+          <option value="bug_report">Report a bug</option>
+          <option value="general_feedback">General feedback</option>
+        </select>
+        <label for="feedbackDomain">Website domain (optional)</label>
+        <input id="feedbackDomain" type="text" placeholder="example.com" />
+        <label for="feedbackEmail">Contact email (optional)</label>
+        <input id="feedbackEmail" type="email" placeholder="you@company.com" />
+        <label for="feedbackMessage">Message</label>
+        <textarea id="feedbackMessage" rows="5" placeholder="What should we verify, or what issue did you hit?"></textarea>
+        <div class="actions">
+          <button id="submitFeedbackBtn" type="button">Submit</button>
+        </div>
+      </section>
+
+      <section id="dangerZone" class="card danger-zone hidden">
+        <h2>Danger Zone</h2>
+        <p class="danger-copy">
+          Permanently delete your SafeSpend account and linked extension data. This cannot be undone.
+        </p>
+        <div class="actions">
+          <button id="startDeleteBtn" class="danger" type="button">Delete Account</button>
+        </div>
+        <div id="deleteConfirmPanel" class="hidden">
+          <div class="kv-row">
+            <span class="k-label">Confirm account email</span>
+            <code id="deleteExpectedEmail" class="mono">Loading...</code>
+          </div>
+          <label for="deleteConfirmEmail">Type your email to confirm</label>
+          <input id="deleteConfirmEmail" type="email" autocomplete="off" />
+          <label class="check-row">
+            <input id="deleteConfirmAck" type="checkbox" />
+            <span>I understand this action is permanent.</span>
+          </label>
+          <div class="actions">
+            <button id="cancelDeleteBtn" class="secondary" type="button">Cancel</button>
+            <button id="deleteAccountBtn" class="danger hidden" type="button">Delete Account and Data</button>
+          </div>
         </div>
       </section>
 
@@ -55,6 +95,7 @@
       <p id="status" class="status"></p>
     </main>
 
+    <script src="runtime_config.js"></script>
     <script src="options.js"></script>
   </body>
 </html>

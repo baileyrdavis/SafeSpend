@@ -154,3 +154,28 @@ class DeviceAuthPollSerializer(serializers.Serializer):
 class TokenRefreshSerializer(serializers.Serializer):
     refresh_token = serializers.CharField(min_length=24, max_length=256)
     install_hash = serializers.CharField(min_length=24, max_length=128)
+
+
+class FeedbackSubmitSerializer(serializers.Serializer):
+    category = serializers.ChoiceField(
+        choices=[
+            'verified_site_request',
+            'bug_report',
+            'general_feedback',
+        ]
+    )
+    message = serializers.CharField(min_length=8, max_length=4000)
+    domain = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    contact_email = serializers.EmailField(required=False, allow_blank=True)
+    install_hash = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    extension_version = serializers.CharField(max_length=32, required=False, allow_blank=True)
+    source = serializers.CharField(max_length=48, required=False, allow_blank=True)
+
+    def validate_domain(self, value: str) -> str:
+        raw = str(value or '').strip()
+        if not raw:
+            return ''
+        normalized = normalize_domain(raw)
+        if not is_likely_valid_domain(normalized):
+            raise serializers.ValidationError('A valid domain is required when provided.')
+        return normalized

@@ -11,3 +11,6 @@ SECURE_HSTS_PRELOAD = False
 PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.MD5PasswordHasher',
 ]
+
+# Keep tests isolated from external mail providers.
+EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'

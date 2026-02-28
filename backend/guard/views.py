@@ -2,6 +2,7 @@ from urllib.parse import urlencode
 import logging
 
 from django.conf import settings
+from django.core.mail import send_mail
 from django.db import transaction
 from django.http import Http404
 from django.urls import reverse
@@ -27,6 +28,7 @@ from guard.serializers import (
     DeviceAuthStartSerializer,
     RescanRequestSerializer,
     ScanRequestSerializer,
+    FeedbackSubmitSerializer,
     SeenTelemetrySerializer,
     SiteDetailSerializer,
     SiteListSerializer,
@@ -69,6 +71,74 @@ class HealthAPIView(APIView):
 
     def get(self, request):
         return Response({'status': 'ok', 'timestamp': timezone.now(), 'version': settings.APP_VERSION})
+
+
+class FeedbackSubmitAPIView(APIView):
+    throttle_scope = 'telemetry'
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = FeedbackSubmitSerializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+
+        category = payload['category']
+        message = payload['message']
+        domain = payload.get('domain', '')
+        contact_email = payload.get('contact_email', '')
+        install_hash = payload.get('install_hash', '')
+        extension_version = payload.get('extension_version', '')
+        source = payload.get('source', '')
+
+        category_labels = {
+            'verified_site_request': 'Verified Site Request',
+            'bug_report': 'Bug Report',
+            'general_feedback': 'General Feedback',
+        }
+        category_label = category_labels.get(category, category)
+
+        body_lines = [
+            f'Category: {category_label}',
+            f'Domain: {domain or "-"}',
+            f'Contact Email: {contact_email or "-"}',
+            f'Install Hash: {install_hash or "-"}',
+            f'Extension Version: {extension_version or "-"}',
+            f'Source: {source or "-"}',
+            '',
+            'Message:',
+            message,
+        ]
+        email_subject = f'[SafeSpend] {category_label}'
+        email_body = '\n'.join(body_lines)
+
+        admin_emails = [email for _, email in getattr(settings, 'ADMINS', []) if email]
+        feedback_recipient = str(getattr(settings, 'GUARD_FEEDBACK_EMAIL', '') or '').strip()
+        if feedback_recipient:
+            recipients = [feedback_recipient]
+        elif admin_emails:
+            recipients = admin_emails
+        else:
+            recipients = []
+
+        delivered = False
+        if recipients:
+            try:
+                send_mail(
+                    subject=email_subject,
+                    message=email_body,
+                    from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None),
+                    recipient_list=recipients,
+                    fail_silently=False,
+                )
+                delivered = True
+            except Exception:
+                logger.exception('Feedback submission email delivery failed.')
+
+        if not delivered:
+            logger.info('Feedback submission recorded without email delivery: %s', email_body)
+
+        return Response({'ok': True, 'delivered': delivered}, status=status.HTTP_200_OK)
 
 
 class DeviceAuthStartAPIView(APIView):

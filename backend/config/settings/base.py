@@ -22,6 +22,13 @@ env = environ.Env(
     DEVICE_AUTH_INTERVAL_SECONDS=(int, 5),
     API_ACCESS_TOKEN_EXPIRES_SECONDS=(int, 900),
     API_REFRESH_TOKEN_EXPIRES_SECONDS=(int, 2592000),
+    EMAIL_BACKEND=(str, 'django.core.mail.backends.smtp.EmailBackend'),
+    EMAIL_HOST=(str, 'smtp.postmarkapp.com'),
+    EMAIL_PORT=(int, 587),
+    EMAIL_USE_TLS=(bool, True),
+    EMAIL_USE_SSL=(bool, False),
+    EMAIL_HOST_USER=(str, ''),
+    EMAIL_HOST_PASSWORD=(str, ''),
 )
 
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
@@ -32,6 +39,15 @@ ALLOWED_HOSTS = env.list('ALLOWED_HOSTS')
 APP_VERSION = env('APP_VERSION', default='0.1.0')
 API_AUTH_TOKEN = env('API_AUTH_TOKEN', default='')
 API_REQUIRE_AUTH = env('API_REQUIRE_AUTH')
+GUARD_FEEDBACK_EMAIL = env('GUARD_FEEDBACK_EMAIL', default='')
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='noreply@safespend.local')
+EMAIL_BACKEND = env('EMAIL_BACKEND')
+EMAIL_HOST = env('EMAIL_HOST')
+EMAIL_PORT = env.int('EMAIL_PORT')
+EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS')
+EMAIL_USE_SSL = env.bool('EMAIL_USE_SSL')
+EMAIL_HOST_USER = env('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 DEVICE_AUTH_EXPIRES_SECONDS = env.int('DEVICE_AUTH_EXPIRES_SECONDS')
 DEVICE_AUTH_INTERVAL_SECONDS = env.int('DEVICE_AUTH_INTERVAL_SECONDS')
 API_ACCESS_TOKEN_EXPIRES_SECONDS = env.int('API_ACCESS_TOKEN_EXPIRES_SECONDS')

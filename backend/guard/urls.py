@@ -14,5 +14,6 @@ urlpatterns = [
     path('site/<str:domain>/rescan', views.SiteRescanAPIView.as_view(), name='site-rescan-api'),
     path('sites', views.SiteListAPIView.as_view(), name='site-list-api'),
     path('telemetry/seen', views.SeenTelemetryAPIView.as_view(), name='seen-telemetry-api'),
+    path('feedback/submit', views.FeedbackSubmitAPIView.as_view(), name='feedback-submit-api'),
     path('health', views.HealthAPIView.as_view(), name='health-api'),
 ]

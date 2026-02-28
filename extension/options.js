@@ -1,5 +1,5 @@
-const DEFAULT_API_BASE_URL = 'http://localhost:8000';
 const DEFAULT_CACHE_TTL_HOURS = 24;
+const AUTH_FRESH_SKEW_MS = 45 * 1000;
 
 function byId(id) {
   return document.getElementById(id);
@@ -53,40 +53,199 @@ function setButtonLoading(button, loadingText, isLoading, restoreLabel = true) {
   }
 }
 
+let currentUserEmail = '';
+let ongoingScans = [];
+let lastAppliedFeedbackPrefill = '';
+
+function deriveAuthFromLocal(authState, authProfile, deviceAuthSession = null) {
+  const now = Date.now();
+  const accessFresh = Boolean(
+    authState?.access_token &&
+    Number(authState?.access_expires_at_ms || 0) - now > AUTH_FRESH_SKEW_MS
+  );
+  const refreshAvailable = Boolean(
+    authState?.refresh_token &&
+    Number(authState?.refresh_expires_at_ms || 0) > now
+  );
+  const inProgress = Boolean(
+    deviceAuthSession &&
+    deviceAuthSession.status === 'pending' &&
+    Number(deviceAuthSession.expires_at_ms || 0) > now
+  );
+  return {
+    authenticated: accessFresh || (!accessFresh && refreshAvailable),
+    preview_mode: !(accessFresh || (!accessFresh && refreshAvailable)),
+    recovering: !accessFresh && refreshAvailable,
+    refresh_available: refreshAvailable,
+    in_progress: inProgress,
+    verifying: false,
+    user_code: inProgress ? deviceAuthSession.user_code : null,
+    verification_url: inProgress ? deviceAuthSession.verification_uri_complete : null,
+    user_email: String(authProfile?.user_email || ''),
+    auth_error: null,
+    access_expires_at_ms: authState?.access_expires_at_ms || null,
+  };
+}
+
+function applyFeedbackPrefill(domainValue, { force = false } = {}) {
+  const domain = String(domainValue || '').trim();
+  if (!domain) {
+    return;
+  }
+  const input = byId('feedbackDomain');
+  const current = String(input.value || '').trim();
+  if (force || !current || current === lastAppliedFeedbackPrefill) {
+    input.value = domain;
+  }
+  lastAppliedFeedbackPrefill = domain;
+}
+
+function formatDuration(ms) {
+  const totalSeconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+  }
+  return `${seconds}s`;
+}
+
+function renderOngoingScans() {
+  const empty = byId('ongoingScansEmpty');
+  const list = byId('ongoingScansList');
+  if (!Array.isArray(ongoingScans) || !ongoingScans.length) {
+    empty.classList.remove('hidden');
+    list.classList.add('hidden');
+    list.innerHTML = '';
+    return;
+  }
+
+  empty.classList.add('hidden');
+  list.classList.remove('hidden');
+  list.innerHTML = ongoingScans.map((scan) => {
+    const domain = String(scan?.domain || 'Unknown domain');
+    const mode = String(scan?.mode || 'public');
+    const tabCount = Number(scan?.tab_count || 0);
+    const elapsed = formatDuration(Number(scan?.elapsed_ms || 0));
+    return `
+      <article class="scan-item">
+        <div class="scan-head">
+          <span class="scan-domain">${domain}</span>
+          <span class="scan-mode">${mode === 'private' ? 'PRIVATE' : 'PUBLIC'}</span>
+        </div>
+        <div class="scan-meta">
+          <span>Running: ${elapsed}</span>
+          <span>Watching tabs: ${tabCount}</span>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+async function refreshOngoingScans() {
+  const response = await sendMessage({ type: 'GET_ONGOING_SCANS' });
+  if (!response?.ok) {
+    ongoingScans = [];
+    renderOngoingScans();
+    return;
+  }
+  ongoingScans = Array.isArray(response.scans) ? response.scans : [];
+  renderOngoingScans();
+}
+
+function setAuthCheckingSpinner(visible) {
+  byId('authCheckingSpinner').classList.toggle('hidden', !visible);
+}
+
+function collapseDeleteConfirmation() {
+  byId('deleteConfirmPanel').classList.add('hidden');
+  byId('startDeleteBtn').classList.remove('hidden');
+  byId('deleteConfirmEmail').value = '';
+  byId('deleteConfirmAck').checked = false;
+  updateDeleteButtonState();
+}
+
+function openDeleteConfirmation() {
+  byId('deleteConfirmPanel').classList.remove('hidden');
+  byId('startDeleteBtn').classList.add('hidden');
+  updateDeleteButtonState();
+}
+
+function updateDeleteButtonState() {
+  const typedEmail = byId('deleteConfirmEmail').value.trim().toLowerCase();
+  const expectedEmail = String(currentUserEmail || '').trim().toLowerCase();
+  const confirmedAck = byId('deleteConfirmAck').checked;
+  const canDelete = Boolean(expectedEmail) && typedEmail === expectedEmail && confirmedAck;
+  byId('deleteAccountBtn').disabled = !canDelete;
+}
+
 function renderAuthSummary(auth) {
-  const summary = byId('authSummary');
+  const summary = byId('authSummaryText');
   const connectBtn = byId('connectBtn');
   const registerBtn = byId('registerBtn');
   const signOutBtn = byId('signOutBtn');
   const deleteAccountBtn = byId('deleteAccountBtn');
+  const dangerZone = byId('dangerZone');
+  const deleteExpectedEmail = byId('deleteExpectedEmail');
+  const feedbackCard = byId('feedbackCard');
+
+  setAuthCheckingSpinner(Boolean(auth?.in_progress || auth?.verifying || auth?.recovering));
 
   if (!auth) {
     summary.textContent = 'Checking account status...';
     connectBtn.classList.remove('hidden');
     registerBtn.classList.add('hidden');
     signOutBtn.classList.add('hidden');
+    dangerZone.classList.add('hidden');
     deleteAccountBtn.classList.add('hidden');
+    currentUserEmail = '';
+    deleteExpectedEmail.textContent = 'Sign in required';
+    feedbackCard.classList.add('hidden');
+    collapseDeleteConfirmation();
     return;
   }
 
   if (auth.authenticated) {
-    summary.textContent = 'Connected. Full backend scanning and account security are active.';
+    currentUserEmail = String(auth.user_email || '').trim();
+    summary.textContent = auth.recovering
+      ? 'Restoring session...'
+      : (currentUserEmail
+          ? `Connected as ${currentUserEmail}. Full checks are active. `
+          : 'Connected. Full backend scanning and account security are active. ');
     connectBtn.classList.add('hidden');
     registerBtn.classList.add('hidden');
     signOutBtn.classList.remove('hidden');
+    dangerZone.classList.remove('hidden');
     deleteAccountBtn.classList.remove('hidden');
+    deleteExpectedEmail.textContent = currentUserEmail || 'Could not resolve account email';
+    feedbackCard.classList.remove('hidden');
+    const feedbackEmailInput = byId('feedbackEmail');
+    if (!feedbackEmailInput.value.trim() && currentUserEmail) {
+      feedbackEmailInput.value = currentUserEmail;
+    }
+    updateDeleteButtonState();
     return;
   }
 
   if (auth.in_progress) {
-    summary.textContent = auth.user_code
-      ? `Sign-in in progress. Use code ${auth.user_code}.`
-      : 'Sign-in in progress.';
+    const copy = auth.verifying
+      ? 'Verifying account connection... '
+      : (auth.user_code ? `Sign-in in progress. Use code ${auth.user_code}. ` : 'Sign-in in progress. ');
+    summary.textContent = copy;
     connectBtn.textContent = 'Resume Sign In';
     connectBtn.classList.remove('hidden');
     registerBtn.classList.add('hidden');
     signOutBtn.classList.add('hidden');
+    dangerZone.classList.add('hidden');
     deleteAccountBtn.classList.add('hidden');
+    currentUserEmail = '';
+    deleteExpectedEmail.textContent = 'Sign in required';
+    feedbackCard.classList.add('hidden');
+    collapseDeleteConfirmation();
     return;
   }
 
@@ -95,7 +254,12 @@ function renderAuthSummary(auth) {
   connectBtn.classList.remove('hidden');
   registerBtn.classList.remove('hidden');
   signOutBtn.classList.add('hidden');
+  dangerZone.classList.add('hidden');
   deleteAccountBtn.classList.add('hidden');
+  currentUserEmail = '';
+  deleteExpectedEmail.textContent = 'Sign in required';
+  feedbackCard.classList.add('hidden');
+  collapseDeleteConfirmation();
 }
 
 async function refreshAuthSummary() {
@@ -104,73 +268,29 @@ async function refreshAuthSummary() {
 }
 
 async function loadSettings() {
-  const syncData = await storageGet('sync', ['api_base_url', 'cache_ttl_hours']);
-  const configResponse = await sendMessage({ type: 'GET_EXTENSION_CONFIG' });
-
-  byId('apiBaseUrl').value = syncData.api_base_url || DEFAULT_API_BASE_URL;
+  const [syncData, localData] = await Promise.all([
+    storageGet('sync', ['cache_ttl_hours']),
+    storageGet('local', ['install_hash', 'auth_state', 'auth_profile', 'device_auth_session', 'feedback_prefill_domain']),
+  ]);
   byId('cacheTtlHours').value = String(syncData.cache_ttl_hours || DEFAULT_CACHE_TTL_HOURS);
-  byId('installHash').textContent = configResponse?.install_hash || 'Not initialized yet.';
+  byId('installHash').textContent = localData.install_hash || 'Initializing...';
+  renderAuthSummary(deriveAuthFromLocal(localData.auth_state || {}, localData.auth_profile || null, localData.device_auth_session || null));
+  applyFeedbackPrefill(localData.feedback_prefill_domain, { force: true });
 
-  renderAuthSummary(configResponse?.auth || null);
+  // Non-blocking refreshes so the page is immediately usable.
+  void refreshAuthSummary();
+  void refreshOngoingScans();
 }
 
-async function saveSettings() {
-  const button = byId('saveBtn');
+async function saveCacheSettings() {
+  const button = byId('saveCacheBtn');
   setButtonLoading(button, 'Saving...', true);
   try {
-    const currentSettings = await storageGet('sync', ['api_base_url']);
-    const apiBaseUrl = byId('apiBaseUrl').value.trim().replace(/\/$/, '');
     const cacheTtlHoursRaw = Number(byId('cacheTtlHours').value);
     const cacheTtlHours = Math.max(1, Math.min(72, Number.isFinite(cacheTtlHoursRaw) ? cacheTtlHoursRaw : DEFAULT_CACHE_TTL_HOURS));
-
-    if (!apiBaseUrl) {
-      setStatus('API base URL is required.', 'error');
-      return;
-    }
-
-    const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(apiBaseUrl);
-    if (!apiBaseUrl.startsWith('https://') && !isLocalhost) {
-      setStatus('Use HTTPS for non-localhost API URLs.', 'error');
-      return;
-    }
-
-    await storageSet('sync', {
-      api_base_url: apiBaseUrl,
-      cache_ttl_hours: cacheTtlHours
-    });
-
-    if ((currentSettings.api_base_url || DEFAULT_API_BASE_URL).replace(/\/$/, '') !== apiBaseUrl) {
-      await sendMessage({ type: 'SIGN_OUT' });
-      await sendMessage({ type: 'CLEAR_EXTENSION_CACHE' });
-      renderAuthSummary({ authenticated: false, in_progress: false, auth_error: '' });
-      setStatus('Settings saved. Please reconnect SafeSpend for this API.', 'success');
-      return;
-    }
-
-    setStatus('Settings saved.');
-  } finally {
-    setButtonLoading(button, '', false, false);
-  }
-}
-
-async function testConnection() {
-  const button = byId('testBtn');
-  setButtonLoading(button, 'Testing...', true);
-  const apiBaseUrl = byId('apiBaseUrl').value.trim().replace(/\/$/, '');
-  if (!apiBaseUrl) {
-    setStatus('Enter API base URL before testing.', 'error');
-    setButtonLoading(button, '', false);
-    return;
-  }
-
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/health`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    setStatus('Connection OK.');
-  } catch (error) {
-    setStatus(`Connection failed: ${error.message || 'unknown error'}`, 'error');
+    await storageSet('sync', { cache_ttl_hours: cacheTtlHours });
+    byId('cacheTtlHours').value = String(cacheTtlHours);
+    setStatus('Cache settings saved.', 'success');
   } finally {
     setButtonLoading(button, '', false);
   }
@@ -187,9 +307,8 @@ async function connectAccount() {
       renderAuthSummary(response?.auth || null);
       return;
     }
-
     renderAuthSummary(response.auth || null);
-    setStatus('Sign-in page opened. Finish login there, then return here.');
+    setStatus('Sign-in page opened. Finish login there.', 'success');
   } finally {
     setButtonLoading(button, '', false);
   }
@@ -204,7 +323,7 @@ async function openRegisterPage() {
       setStatus(response?.error || 'Could not open registration page.', 'error');
       return;
     }
-    setStatus('Registration page opened. Create account, then connect SafeSpend.');
+    setStatus('Registration page opened. Create account, then connect SafeSpend.', 'success');
   } finally {
     setButtonLoading(button, '', false);
   }
@@ -221,33 +340,34 @@ async function signOutAccount() {
       return;
     }
     renderAuthSummary(response.auth || null);
-    setStatus('Signed out for this browser.');
+    setStatus('Signed out for this browser.', 'success');
   } finally {
     setButtonLoading(button, '', false);
   }
 }
 
 async function deleteAccount() {
-  const confirmed = window.confirm(
-    'Delete your SafeSpend account and install-linked data? This cannot be undone.',
-  );
-  if (!confirmed) {
+  updateDeleteButtonState();
+  if (byId('deleteAccountBtn').disabled) {
+    setStatus('Type your account email exactly and tick the confirmation checkbox.', 'error');
     return;
   }
 
   const button = byId('deleteAccountBtn');
+  const confirmEmail = byId('deleteConfirmEmail').value.trim();
   setButtonLoading(button, 'Deleting...', true);
   setStatus('Deleting account and related data...', 'info');
   try {
-    const response = await sendMessage({ type: 'DELETE_ACCOUNT' });
+    const response = await sendMessage({ type: 'DELETE_ACCOUNT', confirm_email: confirmEmail });
     if (!response?.ok) {
       setStatus(response?.error || 'Could not delete account.', 'error');
       return;
     }
     renderAuthSummary(response.auth || null);
-    setStatus('Account deleted for this user. Extension returned to preview mode.');
+    setStatus('Account deleted for this user. Extension returned to preview mode.', 'success');
   } finally {
     setButtonLoading(button, '', false);
+    collapseDeleteConfirmation();
   }
 }
 
@@ -257,21 +377,81 @@ async function clearCache() {
   setStatus('Clearing cached results...', 'info');
   try {
     await sendMessage({ type: 'CLEAR_EXTENSION_CACHE' });
-    setStatus('Cached scan results cleared.');
+    setStatus('Cached scan results cleared.', 'success');
   } finally {
     setButtonLoading(button, '', false);
   }
 }
 
-byId('saveBtn').addEventListener('click', saveSettings);
-byId('testBtn').addEventListener('click', testConnection);
+async function submitFeedback() {
+  const button = byId('submitFeedbackBtn');
+  const category = String(byId('feedbackCategory').value || '').trim();
+  const domain = String(byId('feedbackDomain').value || '').trim();
+  const contactEmail = String(byId('feedbackEmail').value || '').trim();
+  const message = String(byId('feedbackMessage').value || '').trim();
+
+  if (!message || message.length < 8) {
+    setStatus('Please provide a bit more detail before submitting.', 'error');
+    return;
+  }
+
+  setButtonLoading(button, 'Submitting...', true);
+  setStatus('Submitting feedback...', 'info');
+  try {
+    const response = await sendMessage({
+      type: 'SUBMIT_FEEDBACK',
+      payload: {
+        category,
+        domain,
+        contact_email: contactEmail,
+        message,
+      },
+    });
+    if (!response?.ok) {
+      setStatus(response?.error || 'Could not submit feedback.', 'error');
+      return;
+    }
+    byId('feedbackMessage').value = '';
+    setStatus(
+      response?.delivered
+        ? 'Feedback submitted and emailed successfully.'
+        : 'Feedback submitted successfully.',
+      'success'
+    );
+  } finally {
+    setButtonLoading(button, '', false);
+  }
+}
+
+byId('saveCacheBtn').addEventListener('click', saveCacheSettings);
 byId('connectBtn').addEventListener('click', connectAccount);
 byId('registerBtn').addEventListener('click', openRegisterPage);
 byId('signOutBtn').addEventListener('click', signOutAccount);
+byId('startDeleteBtn').addEventListener('click', openDeleteConfirmation);
+byId('cancelDeleteBtn').addEventListener('click', collapseDeleteConfirmation);
 byId('deleteAccountBtn').addEventListener('click', deleteAccount);
 byId('clearCacheBtn').addEventListener('click', clearCache);
+byId('submitFeedbackBtn').addEventListener('click', submitFeedback);
+byId('deleteConfirmEmail').addEventListener('input', updateDeleteButtonState);
+byId('deleteConfirmAck').addEventListener('change', updateDeleteButtonState);
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === 'AUTH_STATE_UPDATED') {
+    void refreshAuthSummary();
+  }
+});
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') {
+    return;
+  }
+  if (changes.feedback_prefill_domain) {
+    applyFeedbackPrefill(changes.feedback_prefill_domain.newValue, { force: false });
+  }
+});
 
 void loadSettings();
 setInterval(() => {
   void refreshAuthSummary();
 }, 3000);
+setInterval(() => {
+  void refreshOngoingScans();
+}, 1000);
