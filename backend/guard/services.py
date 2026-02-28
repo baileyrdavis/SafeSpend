@@ -4,11 +4,13 @@ from datetime import timedelta
 import hashlib
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
 from guard.models import CheckResult, EvidenceSnapshot, Scan, SeenSite, Site, SiteType, SnapshotType, TrustLevel
 from guard.risk_engine.engine import RiskEngine
+from guard.sitewide_signals import merge_with_sitewide_signals
 
 
 DISCLAIMER_TEXT = 'Risk score is informational only.'
@@ -20,6 +22,17 @@ def trust_level_from_score(score: int) -> str:
     if score <= 50:
         return TrustLevel.MEDIUM
     return TrustLevel.LOW
+
+
+def enrich_signals_for_scan(domain: str, signals: dict[str, Any] | None) -> dict[str, Any]:
+    base = dict(signals or {})
+    if not bool(getattr(settings, 'GUARD_ENABLE_SITEWIDE_ENRICHMENT', True)):
+        return base
+    try:
+        return merge_with_sitewide_signals(domain=domain, extracted_signals=base)
+    except Exception:
+        # Never block scan execution because enrichment failed.
+        return base
 
 
 def should_rescan(site: Site, latest_scan: Scan | None, signals: dict[str, Any] | None) -> bool:

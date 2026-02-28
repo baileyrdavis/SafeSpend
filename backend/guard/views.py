@@ -35,7 +35,14 @@ from guard.serializers import (
     SiteListSerializer,
     TokenRefreshSerializer,
 )
-from guard.services import build_private_scan_response, build_scan_response, record_seen_domain, run_and_persist_scan, should_rescan
+from guard.services import (
+    build_private_scan_response,
+    build_scan_response,
+    enrich_signals_for_scan,
+    record_seen_domain,
+    run_and_persist_scan,
+    should_rescan,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -412,7 +419,7 @@ class ScanAPIView(APIView):
 
         payload = serializer.validated_data
         domain = payload['domain']
-        extracted_signals = payload.get('extracted_signals') or {}
+        extracted_signals = enrich_signals_for_scan(domain=domain, signals=payload.get('extracted_signals') or {})
         extension_version = payload.get('extension_version', '')
         include_checks = payload.get('include_checks', False)
         include_evidence = payload.get('include_evidence', False)
@@ -567,6 +574,7 @@ class SiteRescanAPIView(APIView):
             raise Http404('Site not indexed') from exc
 
         extracted_signals = serializer.validated_data.get('extracted_signals') or {}
+        extracted_signals = enrich_signals_for_scan(domain=normalized_domain, signals=extracted_signals)
         extension_version = serializer.validated_data.get('extension_version', 'manual')
         include_checks = serializer.validated_data.get('include_checks', True)
         include_evidence = serializer.validated_data.get('include_evidence', True)
