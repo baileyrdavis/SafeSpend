@@ -78,7 +78,7 @@ class DeviceAuthSessionAdmin(admin.ModelAdmin):
 class ApiAccessTokenAdmin(admin.ModelAdmin):
     list_display = ('user', 'install_hash', 'issued_at', 'expires_at', 'revoked_at', 'last_used_at')
     list_filter = ('revoked_at',)
-    search_fields = ('user__username', 'install_hash')
+    search_fields = ('user__email', 'install_hash')
     readonly_fields = (
         'token_hash',
         'user',
@@ -95,7 +95,7 @@ class ApiAccessTokenAdmin(admin.ModelAdmin):
 class ApiRefreshTokenAdmin(admin.ModelAdmin):
     list_display = ('user', 'install_hash', 'issued_at', 'expires_at', 'revoked_at', 'replaced_by')
     list_filter = ('revoked_at',)
-    search_fields = ('user__username', 'install_hash')
+    search_fields = ('user__email', 'install_hash')
     readonly_fields = (
         'token_hash',
         'user',

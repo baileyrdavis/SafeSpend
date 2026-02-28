@@ -37,14 +37,20 @@ function setStatus(message, type = 'success') {
 
 function renderAuthSummary(auth) {
   const summary = byId('authSummary');
+  const connectBtn = byId('connectBtn');
+  const signOutBtn = byId('signOutBtn');
 
   if (!auth) {
     summary.textContent = 'Checking account status...';
+    connectBtn.classList.remove('hidden');
+    signOutBtn.classList.add('hidden');
     return;
   }
 
   if (auth.authenticated) {
     summary.textContent = 'Connected. Scans are active.';
+    connectBtn.classList.add('hidden');
+    signOutBtn.classList.remove('hidden');
     return;
   }
 
@@ -52,10 +58,16 @@ function renderAuthSummary(auth) {
     summary.textContent = auth.user_code
       ? `Sign-in in progress. Use code ${auth.user_code}.`
       : 'Sign-in in progress.';
+    connectBtn.textContent = 'Resume Sign In';
+    connectBtn.classList.remove('hidden');
+    signOutBtn.classList.add('hidden');
     return;
   }
 
   summary.textContent = auth.auth_error || 'Not connected yet. Click Connect SafeSpend.';
+  connectBtn.textContent = 'Connect SafeSpend';
+  connectBtn.classList.remove('hidden');
+  signOutBtn.classList.add('hidden');
 }
 
 async function refreshAuthSummary() {

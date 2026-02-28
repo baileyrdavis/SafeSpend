@@ -4,16 +4,21 @@ from django.shortcuts import render
 from django.views import View
 
 from guard.auth_service import AuthServiceError, approve_device_auth_session
-from guard.forms import DeviceApprovalForm
+from guard.forms import DeviceApprovalForm, EmailAuthenticationForm
 
 
 class SafeSpendLoginView(LoginView):
     template_name = 'guard/login.html'
     redirect_authenticated_user = True
+    authentication_form = EmailAuthenticationForm
 
 
 class SafeSpendLogoutView(LogoutView):
     next_page = '/auth/login'
+    http_method_names = ['get', 'post', 'head', 'options']
+
+    def get(self, request, *args, **kwargs):
+        return self.post(request, *args, **kwargs)
 
 
 class DeviceAuthVerifyView(LoginRequiredMixin, View):

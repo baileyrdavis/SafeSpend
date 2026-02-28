@@ -1,4 +1,5 @@
 from urllib.parse import urlencode
+import logging
 
 from django.conf import settings
 from django.http import Http404
@@ -30,6 +31,8 @@ from guard.serializers import (
     TokenRefreshSerializer,
 )
 from guard.services import build_scan_response, record_seen_domain, run_and_persist_scan, should_rescan
+
+logger = logging.getLogger(__name__)
 
 
 def _auth_error_response(error: AuthServiceError) -> Response:
@@ -112,6 +115,15 @@ class DeviceAuthPollAPIView(APIView):
             )
         except AuthServiceError as error:
             return _auth_error_response(error)
+        except Exception:
+            logger.exception('Unexpected device authorization polling failure.')
+            return Response(
+                {
+                    'error': 'server_error',
+                    'detail': 'Authorization service error. Please try again.',
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         return Response(_token_response_payload(token_pair), status=status.HTTP_200_OK)
 
@@ -149,7 +161,7 @@ class AuthSessionAPIView(APIView):
             {
                 'authenticated': auth_mode in {'access-token', 'static-token'},
                 'auth_mode': auth_mode,
-                'user': user.get_username() if user else None,
+                'user': user.email if user else None,
                 'access_token_expires_at': access_token.expires_at if access_token else None,
             },
             status=status.HTTP_200_OK,

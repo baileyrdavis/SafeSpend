@@ -12,7 +12,7 @@ class DeviceAuthFlowTests(TestCase):
         self.web_client = Client()
         self.install_hash = '7f8bc45ad2114eca9fc1b165ef909c11'
         self.user = get_user_model().objects.create_user(
-            username='consumer',
+            username='consumer@example.com',
             email='consumer@example.com',
             password='strong-password',
         )
@@ -63,6 +63,24 @@ class DeviceAuthFlowTests(TestCase):
             HTTP_AUTHORIZATION=f"Bearer {poll_response.data['access_token']}",
         )
         self.assertEqual(protected_response.status_code, 200)
+
+    def test_login_view_authenticates_with_email(self):
+        response = self.web_client.post(
+            '/auth/login',
+            {
+                'email': self.user.email,
+                'password': 'strong-password',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(str(self.web_client.session.get('_auth_user_id')), str(self.user.id))
+
+    def test_logout_view_allows_get_and_logs_user_out(self):
+        self.web_client.force_login(self.user)
+        response = self.web_client.get('/auth/logout')
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.endswith('/auth/login'))
+        self.assertIsNone(self.web_client.session.get('_auth_user_id'))
 
     def test_refresh_rotation_revokes_previous_refresh_token(self):
         token_pair = issue_token_pair(user=self.user, install_hash=self.install_hash)

@@ -255,6 +255,18 @@ async function getAuthStatePayload() {
   return authStatePayload(authState, deviceSession);
 }
 
+async function syncPendingAuthSession() {
+  const session = await getDeviceAuthSession();
+  if (!session || session.status !== 'pending') {
+    return;
+  }
+  if (safeNumber(session.expires_at_ms, 0) <= Date.now()) {
+    await setDeviceAuthSession({ ...session, status: 'failed', error: 'Sign-in request expired.' });
+    return;
+  }
+  await pollDeviceAuthorization();
+}
+
 function scheduleAuthPolling(seconds) {
   if (authPollTimer) {
     clearTimeout(authPollTimer);
@@ -305,10 +317,15 @@ async function pollDeviceAuthorization() {
         install_hash: installHash
       })
     });
-    payload = await response.json();
   } catch (_error) {
     scheduleAuthPolling(session.interval_seconds || 5);
     return;
+  }
+
+  try {
+    payload = await response.json();
+  } catch (_error) {
+    payload = {};
   }
 
   if (response.ok && payload?.access_token && payload?.refresh_token) {
@@ -322,7 +339,9 @@ async function pollDeviceAuthorization() {
     return;
   }
 
-  const errorMessage = payload?.detail || 'Authorization was not completed.';
+  const errorMessage = response.status >= 500
+    ? `Authorization service unavailable (${response.status}).`
+    : (payload?.detail || `Authorization was not completed (${response.status}).`);
   await setDeviceAuthSession({
     ...session,
     status: 'failed',
@@ -767,6 +786,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === 'GET_AUTH_STATE') {
     (async () => {
+      await syncPendingAuthSession();
       sendResponse({ ok: true, auth: await getAuthStatePayload() });
     })();
     return true;

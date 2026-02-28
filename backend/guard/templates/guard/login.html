@@ -71,9 +71,9 @@
         {% csrf_token %}
         {{ form.non_field_errors }}
 
-        <label for="{{ form.username.id_for_label }}">Username</label>
-        {{ form.username }}
-        {{ form.username.errors }}
+        <label for="{{ form.email.id_for_label }}">Email</label>
+        {{ form.email }}
+        {{ form.email.errors }}
 
         <label for="{{ form.password.id_for_label }}">Password</label>
         {{ form.password }}
