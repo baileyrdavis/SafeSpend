@@ -52,7 +52,14 @@ class ScamwatchAlignedChecksTests(TestCase):
         check = PaymentMethodRiskCheck()
         output = check.run(
             domain='example.com',
-            signals={'payment_methods': {'methods': ['gift_card']}},
+            signals={
+                'payment_methods': {
+                    'methods': ['gift_card'],
+                    'risky_methods': ['gift_card'],
+                    'risky_confidence': 0.8,
+                    'risky_evidence_count': 1,
+                }
+            },
             context=_context(),
         )
         self.assertGreater(output.risk_points, 0)
@@ -65,6 +72,22 @@ class ScamwatchAlignedChecksTests(TestCase):
             context=_context(),
         )
         self.assertLess(output.risk_points, 0)
+
+    def test_payment_method_check_does_not_penalize_low_confidence_risky_signal(self):
+        check = PaymentMethodRiskCheck()
+        output = check.run(
+            domain='example.com',
+            signals={
+                'payment_methods': {
+                    'methods': ['crypto'],
+                    'risky_methods': ['crypto'],
+                    'risky_confidence': 0.2,
+                    'risky_evidence_count': 0,
+                }
+            },
+            context=_context(),
+        )
+        self.assertEqual(output.risk_points, 0)
 
     def test_abn_check_rewards_when_domain_abn_matches(self):
         check = AbnValidationCheck()

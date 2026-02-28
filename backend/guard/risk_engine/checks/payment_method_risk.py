@@ -9,19 +9,43 @@ TRUSTED_METHODS = {'paypal', 'apple_pay', 'google_pay', 'afterpay', 'klarna', 's
 class PaymentMethodRiskCheck(BaseRiskCheck):
     name = 'Payment Method Risk Check'
     scope = 'GLOBAL'
-    version = 1
+    version = 2
 
     def run(self, domain, signals, context):
         payment = signals.get('payment_methods') or {}
         methods = {str(item).lower() for item in (payment.get('methods') or [])}
-        risky = sorted(methods.intersection(RISKY_METHODS))
-        trusted = sorted(methods.intersection(TRUSTED_METHODS))
+        risky_methods = {str(item).lower() for item in (payment.get('risky_methods') or [])}
+        trusted_methods = {str(item).lower() for item in (payment.get('trusted_methods') or [])}
+        risky = sorted(risky_methods.intersection(RISKY_METHODS))
+        trusted = sorted(trusted_methods.intersection(TRUSTED_METHODS))
+
+        # Backward-compatible fallback for older signal payloads.
+        if not risky and not risky_methods:
+            risky = sorted(methods.intersection(RISKY_METHODS))
+        if not trusted and not trusted_methods:
+            trusted = sorted(methods.intersection(TRUSTED_METHODS))
+
+        risky_confidence = float(payment.get('risky_confidence') or 0)
+        risky_evidence_count = int(payment.get('risky_evidence_count') or 0)
+        risky_is_high_confidence = risky_confidence >= 0.55 or risky_evidence_count >= 1
 
         evidence = {
             'methods_detected': sorted(methods),
             'risky_methods': risky,
             'trusted_methods': trusted,
+            'risky_confidence': risky_confidence,
+            'risky_evidence_count': risky_evidence_count,
+            'risky_evidence': list(payment.get('risky_evidence') or [])[:8],
         }
+
+        if risky and not risky_is_high_confidence:
+            return self.output(
+                risk_points=0,
+                confidence=0.5,
+                severity=Severity.INFO,
+                explanation='Potential higher-risk payment methods were mentioned, but evidence was low-confidence.',
+                evidence=evidence,
+            )
 
         if len(risky) >= 2:
             return self.output(
@@ -66,4 +90,3 @@ class PaymentMethodRiskCheck(BaseRiskCheck):
             explanation='Payment method signals were inconclusive.',
             evidence=evidence,
         )
-
