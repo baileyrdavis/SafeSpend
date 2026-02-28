@@ -36,10 +36,9 @@ def should_rescan(site: Site, latest_scan: Scan | None, signals: dict[str, Any] 
     current_signals = signals or {}
 
     # Only trigger short-cycle rescans when stable high-signal fields changed.
+    # Avoid page-level fields here to prevent re-scans while users navigate
+    # product/about/contact pages on the same storefront.
     critical_keys = [
-        'checkout_domain',
-        'contact_profile_hash',
-        'address_profile_hash',
         'is_https',
         'custom_checkout',
     ]
