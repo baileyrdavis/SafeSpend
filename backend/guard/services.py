@@ -22,7 +22,7 @@ def trust_level_from_score(score: int) -> str:
     return TrustLevel.LOW
 
 
-def should_rescan(site: Site, latest_scan: Scan | None, current_hash: str | None) -> bool:
+def should_rescan(site: Site, latest_scan: Scan | None, signals: dict[str, Any] | None) -> bool:
     if latest_scan is None:
         return True
 
@@ -32,8 +32,35 @@ def should_rescan(site: Site, latest_scan: Scan | None, current_hash: str | None
     if site.last_scanned_at <= timezone.now() - timedelta(days=7):
         return True
 
-    previous_hash = (latest_scan.raw_signals or {}).get('html_hash')
-    if current_hash and previous_hash and current_hash != previous_hash:
+    previous_signals = latest_scan.raw_signals or {}
+    current_signals = signals or {}
+
+    # Only trigger short-cycle rescans when stable high-signal fields changed.
+    critical_keys = [
+        'checkout_domain',
+        'contact_profile_hash',
+        'address_profile_hash',
+        'is_https',
+        'custom_checkout',
+    ]
+    for key in critical_keys:
+        previous_value = previous_signals.get(key)
+        current_value = current_signals.get(key)
+        if current_value is None:
+            continue
+        if previous_value != current_value:
+            return True
+
+    current_hash = current_signals.get('html_hash')
+    previous_hash = previous_signals.get('html_hash')
+    if (
+        current_hash
+        and previous_hash
+        and current_hash != previous_hash
+        and site.last_scanned_at <= timezone.now() - timedelta(days=2)
+    ):
+        # Hash-only drift can be noisy for active storefronts. Use it as a
+        # slower fallback trigger when no critical signal changed.
         return True
 
     return False

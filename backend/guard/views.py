@@ -291,14 +291,13 @@ class ScanAPIView(APIView):
             site.site_type = SiteType.ECOM
         site.save(update_fields=['last_seen_at', 'site_type'])
 
-        current_hash = extracted_signals.get('html_hash')
         from_cache = True
 
         with transaction.atomic():
             site = Site.objects.select_for_update().get(pk=site.pk)
             latest_scan = site.scans.order_by('-scanned_at').first()
 
-            if should_rescan(site, latest_scan, current_hash):
+            if should_rescan(site, latest_scan, extracted_signals):
                 scan = run_and_persist_scan(
                     site=site,
                     domain=domain,
