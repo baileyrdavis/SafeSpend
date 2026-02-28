@@ -27,6 +27,7 @@ const CACHE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 let authPollTimer = null;
 let authPollInFlight = false;
+let lastAuthPollRequestAtMs = 0;
 let silentRefreshPromise = null;
 let lastSilentRefreshAttemptAtMs = 0;
 const activeScansByTab = new Map();
@@ -42,6 +43,10 @@ const DETECTING_STATE_TIMEOUT_MS = 4500;
 const SCANNABLE_STALE_MS = 5000;
 const SCANNABLE_RETRY_INTERVAL_MS = 12000;
 const DETECTING_MAX_RETRIES = 2;
+const NOT_SUPPORTED_RETRY_INTERVAL_MS = 15000;
+const NOT_SUPPORTED_MAX_RETRIES = 2;
+const SCAN_PROGRESS_STALE_MS = 90 * 1000;
+const AUTH_POLL_MIN_GAP_MS = 2500;
 
 async function broadcastAuthStateUpdated() {
   try {
@@ -481,6 +486,22 @@ function clearScanInProgress(tabId, expectedScanId = '') {
   activeScansByTab.delete(key);
 }
 
+function clearScanInProgressByMatch(tabId, { domain = '', mode = '' } = {}) {
+  const key = String(tabId);
+  const current = activeScansByTab.get(key);
+  if (!current) {
+    return;
+  }
+  const normalizedDomain = normalizeDomain(domain || '');
+  if (normalizedDomain && current.domain !== normalizedDomain) {
+    return;
+  }
+  if (mode && String(current.mode || 'public') !== String(mode)) {
+    return;
+  }
+  clearScanInProgress(tabId);
+}
+
 function getScanProgress(tabId, domain) {
   const normalizedDomain = normalizeDomain(domain || '');
   const entry = activeScansByTab.get(String(tabId));
@@ -500,6 +521,21 @@ function getScanProgress(tabId, domain) {
     };
   }
   return null;
+}
+
+function cleanupStaleScanProgress(maxAgeMs = SCAN_PROGRESS_STALE_MS) {
+  const now = Date.now();
+  const entries = Array.from(activeScansByTab.entries());
+  entries.forEach(([tabId, entry]) => {
+    const startedAtMs = safeNumber(entry?.started_at_ms, 0);
+    if (!startedAtMs) {
+      clearScanInProgress(Number(tabId));
+      return;
+    }
+    if (now - startedAtMs > Math.max(10_000, safeNumber(maxAgeMs, SCAN_PROGRESS_STALE_MS))) {
+      clearScanInProgress(Number(tabId));
+    }
+  });
 }
 
 function getOngoingScansSnapshot() {
@@ -697,7 +733,9 @@ async function syncPendingAuthSession() {
     await setDeviceAuthSession({ ...session, status: 'failed', error: 'Sign-in request expired.' });
     return;
   }
-  await pollDeviceAuthorization();
+  // Do not force immediate polls from every UI refresh; keep polling cadence
+  // controlled by the scheduler and hint throttles.
+  scheduleAuthPolling(session.interval_seconds || 5);
 }
 
 async function setDeviceAuthSessionIfCurrent(currentDeviceCode, nextSession) {
@@ -808,6 +846,14 @@ async function finalizeAuthorizedSession(payload, session = null) {
 }
 
 async function pollDeviceAuthorization() {
+  if (authPollInFlight) {
+    return;
+  }
+  const now = Date.now();
+  if (now - lastAuthPollRequestAtMs < AUTH_POLL_MIN_GAP_MS) {
+    return;
+  }
+
   const session = await getDeviceAuthSession();
   if (!session) {
     return;
@@ -823,6 +869,7 @@ async function pollDeviceAuthorization() {
   let response;
   let payload = {};
   authPollInFlight = true;
+  lastAuthPollRequestAtMs = Date.now();
   await broadcastAuthStateUpdated();
 
   try {
@@ -856,7 +903,7 @@ async function pollDeviceAuthorization() {
 
   const errorCode = String(payload?.error || '');
   if (response.status === 428 || errorCode === 'authorization_pending') {
-    scheduleAuthPolling(Math.min(session.interval_seconds || 5, 2));
+    scheduleAuthPolling(session.interval_seconds || 5);
     authPollInFlight = false;
     await broadcastAuthStateUpdated();
     return;
@@ -882,6 +929,20 @@ async function pollDeviceAuthorization() {
           // Ignore if tab was already closed by user.
         }
       }
+      await storageRemove('local', [STORAGE_KEYS.CACHE]);
+      await clearAuthProfile();
+      await refreshAuthProfile({ force: true });
+      try {
+        const tabs = await chrome.tabs.query({});
+        await Promise.all(
+          tabs
+            .filter((tab) => typeof tab?.id === 'number' && /^https?:/i.test(String(tab?.url || '')))
+            .map((tab) => triggerExtractionForTab(tab.id))
+        );
+      } catch (_error) {
+        // Best effort only.
+      }
+      await triggerActiveTabExtraction();
       authPollInFlight = false;
       await broadcastAuthStateUpdated();
       return;
@@ -1132,6 +1193,8 @@ async function submitFeedbackToBackend(payload = {}) {
 async function requestScan(domain, signals, options = {}) {
   const config = await getExtensionConfig();
   const installHash = await ensureInstallHash();
+  const initialAuthState = await getAuthState();
+  const hadSession = Boolean(initialAuthState?.access_token || initialAuthState?.refresh_token);
   const forcePrivate = Boolean(options?.forcePrivate);
   const requireAuth = Boolean(options?.requireAuth || forcePrivate);
   const includeChecks = Boolean(options?.includeChecks);
@@ -1140,6 +1203,9 @@ async function requestScan(domain, signals, options = {}) {
   const skipTelemetry = Boolean(options?.skipTelemetry || forcePrivate);
   let accessToken = await ensureAccessToken({ interactive: false });
   if (!accessToken && !requireAuth) {
+    if (hadSession) {
+      throw createAuthRequiredError();
+    }
     return buildPreviewSummary(domain, signals);
   }
 
@@ -1181,6 +1247,9 @@ async function requestScan(domain, signals, options = {}) {
         if (requireAuth) {
           throw createAuthRequiredError();
         }
+        if (hadSession) {
+          throw createAuthRequiredError();
+        }
         return buildPreviewSummary(domain, signals);
       }
       response = await fetch(`${config.apiBaseUrl}/api/scan`, {
@@ -1190,6 +1259,9 @@ async function requestScan(domain, signals, options = {}) {
       });
     } else {
       if (requireAuth) {
+        throw createAuthRequiredError();
+      }
+      if (hadSession) {
         throw createAuthRequiredError();
       }
       return buildPreviewSummary(domain, signals);
@@ -1303,7 +1375,14 @@ async function resolveDomainSummary(tabId, domain, signals) {
   const rapidNavCooldownMs = 2 * 60 * 1000;
   const htmlHash = signals?.html_hash || null;
   const cache = await getCache();
-  const cachedEntry = cache[domain];
+  const authState = await getAuthState();
+  const authenticated = Boolean(authState?.access_token && isFreshTimestamp(authState.access_expires_at_ms));
+  let cachedEntry = cache[domain];
+  if (authenticated && Boolean(cachedEntry?.summary?.preview_mode)) {
+    delete cache[domain];
+    await setCache(cache);
+    cachedEntry = null;
+  }
   const scanKey = domain;
 
   if (canUseCacheEntry(cachedEntry, htmlHash, ttlMs, now)) {
@@ -1393,6 +1472,11 @@ async function getSummaryForDomain(domain) {
   const cache = await getCache();
   const entry = cache[domain];
   if (!entry?.summary) {
+    return null;
+  }
+  const authState = await getAuthState();
+  const authenticated = Boolean(authState?.access_token && isFreshTimestamp(authState.access_expires_at_ms));
+  if (authenticated && Boolean(entry?.summary?.preview_mode)) {
     return null;
   }
   return withResultMetadata(entry.summary, false, false);
@@ -1721,6 +1805,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'PAGE_SIGNALS') {
     (async () => {
       let scanId = '';
+      let scanDomain = '';
       try {
         const tabId = sender.tab?.id;
         if (typeof tabId !== 'number') {
@@ -1729,6 +1814,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         const domain = normalizeDomain(message.payload?.domain || sender.tab?.url || '');
+        scanDomain = domain;
         if (!domain) {
           sendResponse({ ok: false, error: 'Could not resolve domain.' });
           return;
@@ -1772,7 +1858,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: false, error: error.message || 'Scan failed.' });
       } finally {
         if (typeof sender.tab?.id === 'number') {
-          clearScanInProgress(sender.tab.id, scanId);
+          if (scanId) {
+            clearScanInProgress(sender.tab.id, scanId);
+          }
+          clearScanInProgressByMatch(sender.tab.id, { domain: scanDomain, mode: 'public' });
         }
         await cleanupExpiredCache();
       }
@@ -1818,6 +1907,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'GET_RESULT_FOR_ACTIVE_TAB') {
     (async () => {
       try {
+        cleanupStaleScanProgress();
         const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
         const tabId = typeof activeTab?.id === 'number' ? activeTab.id : null;
         let tabStates = await getTabStates();
@@ -1932,6 +2022,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               await triggerExtractionForTab(tabId);
             }
           }
+          if (typeof tabId === 'number' && stateKind === 'not_supported' && !progress && activeTab?.status === 'complete') {
+            const retryCount = safeNumber(pageState?.not_supported_retry_count, 0);
+            const stateAgeMs = Date.now() - safeNumber(pageState?.updated_at_ms, 0);
+            const lastRetryAtMs = safeNumber(pageState?.last_retry_at_ms, 0);
+            const retryDue = Date.now() - lastRetryAtMs >= NOT_SUPPORTED_RETRY_INTERVAL_MS;
+            if (retryCount < NOT_SUPPORTED_MAX_RETRIES && stateAgeMs >= 4000 && retryDue) {
+              await setTabStateWithEvent(tabId, domain, {
+                ...pageState,
+                kind: 'detecting',
+                reason: 'Re-checking page compatibility...',
+                last_retry_at_ms: Date.now(),
+                not_supported_retry_count: retryCount + 1,
+              }, 'not_supported_retry_detecting', {
+                retry_count: retryCount + 1,
+              });
+              tabStates = await getTabStates();
+              await triggerExtractionForTab(tabId);
+            }
+          }
           const noResultMessage = stateKind === 'detecting'
             ? 'Checking whether this page is a supported store.'
             : stateKind === 'scannable'
@@ -1966,6 +2075,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       let activeTabId = null;
       let scanId = '';
+      let scanDomain = '';
       try {
         const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
         const tabId = activeTab?.id;
@@ -1976,6 +2086,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         activeTabId = tabId;
 
         const domain = normalizeDomain(activeTab?.url || '');
+        scanDomain = domain;
         if (!domain) {
           sendResponse({ ok: false, error: 'Could not resolve domain for this tab.' });
           return;
@@ -2034,7 +2145,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: false, error: error.message || 'Force check failed.', auth: await getAuthStatePayload() });
       } finally {
         if (typeof activeTabId === 'number') {
-          clearScanInProgress(activeTabId, scanId);
+          if (scanId) {
+            clearScanInProgress(activeTabId, scanId);
+          }
+          clearScanInProgressByMatch(activeTabId, { domain: scanDomain, mode: 'private' });
         }
       }
     })();
@@ -2045,6 +2159,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       let activeTabId = null;
       let scanId = '';
+      let scanDomain = '';
       try {
         const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
         const tabId = activeTab?.id;
@@ -2055,6 +2170,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         activeTabId = tabId;
 
         const domain = normalizeDomain(activeTab?.url || '');
+        scanDomain = domain;
         if (!domain) {
           sendResponse({ ok: false, error: 'Could not resolve domain for this tab.' });
           return;
@@ -2093,7 +2209,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: false, error: error.message || 'Could not run scan now.', auth: await getAuthStatePayload() });
       } finally {
         if (typeof activeTabId === 'number') {
-          clearScanInProgress(activeTabId, scanId);
+          if (scanId) {
+            clearScanInProgress(activeTabId, scanId);
+          }
+          clearScanInProgressByMatch(activeTabId, { domain: scanDomain, mode: 'public' });
         }
       }
     })();

@@ -10,6 +10,8 @@ from guard.risk_engine.checks.html_change_hash import HtmlChangeHashCheck
 from guard.risk_engine.checks.https_check import HttpsCheck
 from guard.risk_engine.checks.missing_policies import MissingPoliciesCheck
 from guard.risk_engine.checks.payment_method_risk import PaymentMethodRiskCheck
+from guard.risk_engine.checks.payment_form_security import PaymentFormSecurityCheck
+from guard.risk_engine.checks.payment_processor_reputation import PaymentProcessorReputationCheck
 from guard.risk_engine.checks.platform_fingerprint import EcommercePlatformFingerprintCheck
 from guard.risk_engine.checks.registrar_change import RegistrarChangeCheck
 
@@ -20,6 +22,8 @@ DEFAULT_CHECKS = [
     DnsChangeCheck,
     HttpsCheck,
     EcommercePlatformFingerprintCheck,
+    PaymentFormSecurityCheck,
+    PaymentProcessorReputationCheck,
     PaymentMethodRiskCheck,
     MissingPoliciesCheck,
     ContactInformationCheck,

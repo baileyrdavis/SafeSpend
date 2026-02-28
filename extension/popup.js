@@ -478,6 +478,7 @@ function storageSetLocal(values) {
 
 let scanActivityTicker = null;
 let scanActivityStartedAtMs = null;
+let lastExtractionKickAtMs = 0;
 
 function stopScanActivityTicker() {
   if (scanActivityTicker) {
@@ -503,6 +504,15 @@ function startScanActivityTicker(initialElapsedMs) {
   if (!scanActivityTicker) {
     scanActivityTicker = setInterval(renderLiveScanActivity, 1000);
   }
+}
+
+async function maybeKickExtraction() {
+  const now = Date.now();
+  if (now - lastExtractionKickAtMs < 2500) {
+    return;
+  }
+  lastExtractionKickAtMs = now;
+  await triggerActiveExtraction();
 }
 
 async function refreshPopupData() {
@@ -551,6 +561,7 @@ async function refreshPopupData() {
       } else {
         setScanActivity(false);
         setStatus(response?.error || 'Waiting to start scan...', 'info');
+        await maybeKickExtraction();
       }
       return;
     }
@@ -723,7 +734,10 @@ setupInteractions();
 setupLiveTabRefresh();
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === 'AUTH_STATE_UPDATED') {
-    void refreshPopupData();
+    void (async () => {
+      await maybeKickExtraction();
+      await refreshPopupData();
+    })();
   }
 });
 void triggerActiveExtraction();

@@ -34,17 +34,35 @@ class AbnValidationCheck(BaseRiskCheck):
             for item in (abn_signals.get('candidates') or [])
         ]
         candidates = [item for item in candidates if len(item) == 11][:5]
+        labeled_candidates = [
+            ''.join(ch for ch in str(item or '') if ch.isdigit())
+            for item in (abn_signals.get('labeled_candidates') or [])
+        ]
+        labeled_candidates = [item for item in labeled_candidates if len(item) == 11][:5]
+        unlabeled_candidates = [
+            ''.join(ch for ch in str(item or '') if ch.isdigit())
+            for item in (abn_signals.get('unlabeled_candidates') or [])
+        ]
+        unlabeled_candidates = [item for item in unlabeled_candidates if len(item) == 11][:5]
+
+        # Prefer explicitly-labeled ABN candidates. Fallback to any candidates for older payloads.
+        primary_candidates = labeled_candidates or candidates
+        valid_primary_candidates = [item for item in primary_candidates if is_valid_abn(item)]
         valid_candidates = [item for item in candidates if is_valid_abn(item)]
         au_context = _is_au_context(domain, signals)
         eligibility = context.external.au_domain_eligibility if au_context else {}
         eligibility_id = ''.join(ch for ch in str(eligibility.get('eligibility_id') or '') if ch.isdigit())
         domain_abn = eligibility_id if len(eligibility_id) == 11 else ''
-        domain_abn_matches = bool(domain_abn and domain_abn in candidates)
+        domain_abn_matches = bool(domain_abn and domain_abn in primary_candidates)
 
         evidence = {
             'au_context': au_context,
             'candidate_count': len(candidates),
             'candidates': candidates,
+            'primary_candidates': primary_candidates,
+            'labeled_candidates': labeled_candidates,
+            'unlabeled_candidates': unlabeled_candidates,
+            'valid_primary_candidates': valid_primary_candidates,
             'valid_candidates': valid_candidates,
             'domain_eligibility_abn': domain_abn,
             'domain_abn_match': domain_abn_matches,
@@ -60,7 +78,7 @@ class AbnValidationCheck(BaseRiskCheck):
                 evidence=evidence,
             )
 
-        if domain_abn and candidates and not domain_abn_matches:
+        if domain_abn and primary_candidates and not domain_abn_matches:
             return self.output(
                 risk_points=28,
                 confidence=0.88,
@@ -78,7 +96,7 @@ class AbnValidationCheck(BaseRiskCheck):
                 evidence=evidence,
             )
 
-        if au_context and not candidates:
+        if au_context and not primary_candidates:
             return self.output(
                 risk_points=10,
                 confidence=0.65,
@@ -87,16 +105,16 @@ class AbnValidationCheck(BaseRiskCheck):
                 evidence=evidence,
             )
 
-        if candidates and not valid_candidates:
+        if primary_candidates and not valid_primary_candidates:
             return self.output(
-                risk_points=20,
-                confidence=0.8,
-                severity=Severity.HIGH,
-                explanation='ABN-like numbers were detected but failed checksum validation.',
+                risk_points=20 if labeled_candidates else 8,
+                confidence=0.8 if labeled_candidates else 0.62,
+                severity=Severity.HIGH if labeled_candidates else Severity.WARNING,
+                explanation='ABN candidates were detected but failed checksum validation.',
                 evidence=evidence,
             )
 
-        if valid_candidates:
+        if valid_primary_candidates:
             return self.output(
                 risk_points=-6 if au_context else -2,
                 confidence=0.8,

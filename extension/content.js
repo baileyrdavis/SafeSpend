@@ -53,19 +53,35 @@ function findCurrency() {
 }
 
 function detectPlatform() {
-  const html = document.documentElement.outerHTML.slice(0, 120000).toLowerCase();
   const scripts = Array.from(document.querySelectorAll('script[src]')).map((node) => node.src.toLowerCase());
+  const bodyClasses = String(document.body?.className || '').toLowerCase();
+  const htmlClasses = String(document.documentElement?.className || '').toLowerCase();
+  const generatorMeta = String(document.querySelector('meta[name="generator"]')?.content || '').toLowerCase();
 
-  if (scripts.some((src) => src.includes('cdn.shopify.com')) || html.includes('shopify')) {
+  if (
+    scripts.some((src) => src.includes('cdn.shopify.com') || src.includes('shopifycdn.com')) ||
+    Boolean(window.Shopify) ||
+    Boolean(document.querySelector('meta[name="shopify-checkout-api-token"], meta#shopify-digital-wallet'))
+  ) {
     return 'shopify';
   }
-  if (html.includes('woocommerce') || scripts.some((src) => src.includes('/woocommerce/'))) {
+  if (
+    scripts.some((src) => src.includes('/wp-content/plugins/woocommerce/') || src.includes('/woocommerce/')) ||
+    bodyClasses.includes('woocommerce') ||
+    htmlClasses.includes('woocommerce')
+  ) {
     return 'woocommerce';
   }
-  if (html.includes('magento') || html.includes('mage/')) {
+  if (
+    generatorMeta.includes('magento') ||
+    scripts.some((src) => src.includes('/mage/') || src.includes('magento'))
+  ) {
     return 'magento';
   }
-  if (scripts.some((src) => src.includes('bigcommerce.com')) || html.includes('bigcommerce')) {
+  if (
+    scripts.some((src) => src.includes('bigcommerce.com') || src.includes('cdn.bcapp')) ||
+    Boolean(document.querySelector('[data-cart-api], [data-store-hash]'))
+  ) {
     return 'bigcommerce';
   }
 
@@ -85,6 +101,7 @@ function hasProductSchema() {
 
 function detectEcommerce(platform) {
   const bodyText = document.body?.innerText?.slice(0, 7000) || '';
+  const path = String(window.location.pathname || '').toLowerCase();
   const hasCartButton = Boolean(
     document.querySelector(
       'a[href*="cart" i], button[name*="cart" i], [aria-label*="cart" i], button[class*="add-to-cart" i], button[id*="add-to-cart" i], button[class*="add-to-bag" i], button[id*="add-to-bag" i]'
@@ -102,12 +119,35 @@ function detectEcommerce(platform) {
     'add to bag',
     'buy now',
     'proceed to checkout',
-    'shopping cart'
+    'shopping cart',
+    'place order',
+    'checkout',
+    'order summary'
+  ]);
+  const hasCartRoute = /\/(cart|checkout|basket|order)(\/|$|\.html?)/i.test(path);
+  const hasCheckoutUiMarkers = Boolean(
+    document.querySelector(
+      '[id*="checkout" i], [class*="checkout" i], [id*="cart" i], [class*="cart" i], [id*="order" i], [class*="order" i], button[data-target*="order" i], button[onclick*="order" i]'
+    )
+  );
+  const hasPaymentText = textIncludesAny(bodyText, [
+    'credit card',
+    'card number',
+    'cvv',
+    'expiry',
+    'expiration date'
   ]);
   const hasKnownPlatform = platform !== 'unknown';
 
-  const strongSignals = [hasCartButton, hasCheckoutRoute, hasSchemaProduct, hasPriceMarker].filter(Boolean).length;
-  const weakSignals = [hasStoreText, hasKnownPlatform].filter(Boolean).length;
+  const strongSignals = [
+    hasCartButton,
+    hasCheckoutRoute,
+    hasSchemaProduct,
+    hasPriceMarker,
+    hasCartRoute,
+    hasCheckoutUiMarkers,
+  ].filter(Boolean).length;
+  const weakSignals = [hasStoreText, hasKnownPlatform, hasPaymentText].filter(Boolean).length;
 
   return {
     hasCartButton,
@@ -115,6 +155,9 @@ function detectEcommerce(platform) {
     hasSchemaProduct,
     hasPriceMarker,
     hasStoreText,
+    hasCartRoute,
+    hasCheckoutUiMarkers,
+    hasPaymentText,
     hasKnownPlatform,
     isEcommerce: strongSignals >= 2 || (strongSignals >= 1 && weakSignals >= 1)
   };
@@ -268,37 +311,154 @@ function extractPaymentSignals() {
   };
 }
 
+function extractPaymentFormSecurity() {
+  const cardPatterns = [
+    /card[\s_-]*number/i,
+    /\bcc[\s_-]*number\b/i,
+    /\bcredit[\s_-]*card\b/i,
+    /\bname[\s_-]*on[\s_-]*card\b/i,
+  ];
+  const expiryPatterns = [/\bexp(?:iry|iration)?\b/i, /\bmm\s*\/\s*yy\b/i, /\bmonth\b/i, /\byear\b/i];
+  const cvvPatterns = [/\bcvv\b/i, /\bcvc\b/i, /\bsecurity[\s_-]*code\b/i];
+
+  const fieldEvidence = [];
+  let cardFieldCount = 0;
+  let expiryFieldCount = 0;
+  let cvvFieldCount = 0;
+
+  const inputNodes = Array.from(
+    document.querySelectorAll('input, select, textarea, [contenteditable="true"]')
+  ).slice(0, 800);
+
+  inputNodes.forEach((node) => {
+    const attributes = [
+      node.getAttribute?.('name') || '',
+      node.getAttribute?.('id') || '',
+      node.getAttribute?.('placeholder') || '',
+      node.getAttribute?.('aria-label') || '',
+      node.getAttribute?.('autocomplete') || '',
+      node.getAttribute?.('data-testid') || '',
+      node.getAttribute?.('class') || '',
+      node.getAttribute?.('type') || '',
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    const labelText = String(node.closest('label')?.innerText || '').toLowerCase();
+    const combined = `${attributes} ${labelText}`;
+
+    if (cardPatterns.some((pattern) => pattern.test(combined))) {
+      cardFieldCount += 1;
+      fieldEvidence.push(`card_field:${combined.slice(0, 80)}`);
+      return;
+    }
+    if (expiryPatterns.some((pattern) => pattern.test(combined))) {
+      expiryFieldCount += 1;
+      fieldEvidence.push(`expiry_field:${combined.slice(0, 80)}`);
+      return;
+    }
+    if (cvvPatterns.some((pattern) => pattern.test(combined))) {
+      cvvFieldCount += 1;
+      fieldEvidence.push(`cvv_field:${combined.slice(0, 80)}`);
+    }
+  });
+
+  const trustedProviderTerms = ['stripe', 'paypal', 'braintree', 'adyen', 'square', 'shopify', 'amazon pay', 'checkout.com'];
+  const iframeSrcs = Array.from(document.querySelectorAll('iframe[src]'))
+    .map((node) => String(node.src || '').toLowerCase())
+    .slice(0, 200);
+  const scriptSrcs = Array.from(document.querySelectorAll('script[src]'))
+    .map((node) => String(node.src || '').toLowerCase())
+    .slice(0, 300);
+  const formActions = Array.from(document.querySelectorAll('form[action]'))
+    .map((node) => String(node.getAttribute('action') || '').toLowerCase())
+    .slice(0, 120);
+
+  const providerHits = new Set();
+  const countHits = (items) => {
+    let count = 0;
+    items.forEach((value) => {
+      trustedProviderTerms.forEach((term) => {
+        if (value.includes(term)) {
+          count += 1;
+          providerHits.add(term);
+        }
+      });
+    });
+    return count;
+  };
+  const secureProviderIframeCount = countHits(iframeSrcs);
+  const secureProviderScriptCount = countHits(scriptSrcs);
+  const secureProviderActionCount = countHits(formActions);
+
+  const secureProviderDetected =
+    secureProviderIframeCount > 0 || secureProviderScriptCount > 0 || secureProviderActionCount > 0;
+  const cardFormSignalCount = cardFieldCount + expiryFieldCount + cvvFieldCount;
+  const hasRawCardFormFields = cardFieldCount > 0 && (expiryFieldCount > 0 || cvvFieldCount > 0);
+  const rawCardFormRisk = hasRawCardFormFields && !secureProviderDetected;
+
+  return {
+    has_raw_card_form_fields: hasRawCardFormFields,
+    card_field_count: cardFieldCount,
+    expiry_field_count: expiryFieldCount,
+    cvv_field_count: cvvFieldCount,
+    card_form_signal_count: cardFormSignalCount,
+    secure_provider_iframe_count: secureProviderIframeCount,
+    secure_provider_script_count: secureProviderScriptCount,
+    secure_provider_action_count: secureProviderActionCount,
+    secure_provider_detected: secureProviderDetected,
+    trusted_providers: [...providerHits].slice(0, 8),
+    raw_card_form_risk: rawCardFormRisk,
+    evidence: fieldEvidence.slice(0, 10),
+  };
+}
+
 function extractAbnSignals() {
   const footerText = document.querySelector('footer')?.innerText || '';
   const bodyText = document.body?.innerText || '';
-  const text = `${footerText}\n${bodyText}`.slice(0, 180000);
-  const pattern = /\b(?:ABN[:\s#-]*)?(\d[\d\s]{10,24})\b/g;
-  const normalized = new Set();
+  const htmlText = document.documentElement?.textContent || '';
+  const text = `${footerText}\n${bodyText}\n${htmlText}`.slice(0, 220000);
+  const labeled = new Set();
+  const unlabeled = new Set();
   let match;
 
-  while ((match = pattern.exec(text)) !== null) {
+  const labelFirstPattern = /\b(?:ABN|Australian Business Number)\b[^\d]{0,24}(\d(?:[\s-]*\d){10,15})\b/gi;
+  while ((match = labelFirstPattern.exec(text)) !== null) {
     const digits = String(match[1] || '').replace(/[^\d]/g, '');
     if (digits.length === 11) {
-      normalized.add(digits);
+      labeled.add(digits);
     }
-    if (normalized.size >= 5) break;
+    if (labeled.size >= 5) break;
   }
 
-  if (!normalized.size) {
-    const loosePattern = /\b\d[\d\s]{10,24}\b/g;
-    let looseMatch;
-    while ((looseMatch = loosePattern.exec(text)) !== null) {
-      const digits = String(looseMatch[0] || '').replace(/[^\d]/g, '');
+  const numberFirstPattern = /\b(\d(?:[\s-]*\d){10,15})\b[^\n\r]{0,32}\b(?:ABN|Australian Business Number)\b/gi;
+  while ((match = numberFirstPattern.exec(text)) !== null) {
+    const digits = String(match[1] || '').replace(/[^\d]/g, '');
+    if (digits.length === 11) {
+      labeled.add(digits);
+    }
+    if (labeled.size >= 5) break;
+  }
+
+  if (!labeled.size) {
+    const contextPattern = /\b(?:company|business|pty ltd|australia|australian)\b[^\d]{0,32}(\d(?:[\s-]*\d){10,15})\b/gi;
+    while ((match = contextPattern.exec(text)) !== null) {
+      const digits = String(match[1] || '').replace(/[^\d]/g, '');
       if (digits.length === 11) {
-        normalized.add(digits);
+        unlabeled.add(digits);
       }
-      if (normalized.size >= 5) break;
+      if (unlabeled.size >= 5) break;
     }
   }
+
+  const mergedCandidates = [...new Set([...labeled, ...unlabeled])].slice(0, 5);
 
   return {
-    candidates: [...normalized],
-    candidate_count: normalized.size,
+    candidates: mergedCandidates,
+    labeled_candidates: [...labeled].slice(0, 5),
+    unlabeled_candidates: [...unlabeled].slice(0, 5),
+    candidate_count: mergedCandidates.length,
+    labeled_candidate_count: labeled.size,
   };
 }
 
@@ -386,6 +546,7 @@ async function extractSignals(options = {}) {
   const contactSignals = extractContact();
   const shippingDestinations = extractShippingDestinations();
   const paymentSignals = extractPaymentSignals();
+  const paymentFormSecurity = extractPaymentFormSecurity();
   const abnSignals = extractAbnSignals();
   const contactProfile = extractContactProfile();
   const contactProfileHash = await computeStableFingerprintHash(contactProfile);
@@ -407,6 +568,7 @@ async function extractSignals(options = {}) {
     policies: policySignals,
     contact: contactSignals,
     payment_methods: paymentSignals,
+    payment_form_security: paymentFormSecurity,
     abn_signals: abnSignals,
     shipping_destinations: shippingDestinations,
     address_text: extractAddressText(),
@@ -419,6 +581,9 @@ async function extractSignals(options = {}) {
       schema_product: ecommerce.hasSchemaProduct,
       price_marker: ecommerce.hasPriceMarker,
       store_text: ecommerce.hasStoreText,
+      cart_route: ecommerce.hasCartRoute,
+      checkout_ui_markers: ecommerce.hasCheckoutUiMarkers,
+      payment_text: ecommerce.hasPaymentText,
       known_platform: ecommerce.hasKnownPlatform
     }
   };
@@ -433,6 +598,7 @@ async function extractSignals(options = {}) {
     policies: policySignals,
     contact: contactSignals,
     payment_methods: paymentSignals,
+    payment_form_security: paymentFormSecurity,
     abn_signals: abnSignals,
     contact_profile_hash: contactProfileHash,
     address_profile_hash: addressProfileHash,
