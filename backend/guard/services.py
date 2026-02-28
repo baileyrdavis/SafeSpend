@@ -52,6 +52,19 @@ def _serialize_check_result(check: CheckResult, include_evidence: bool) -> dict[
     return payload
 
 
+def _serialize_engine_check(check, include_evidence: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        'check_name': str(getattr(check, 'check_name', 'Unknown check')),
+        'risk_points': int(getattr(check, 'risk_points', 0)),
+        'confidence': float(getattr(check, 'confidence', 0.0)),
+        'severity': str(getattr(check, 'severity', 'INFO')),
+        'explanation': str(getattr(check, 'explanation', 'No explanation available.')),
+    }
+    if include_evidence:
+        payload['evidence'] = dict(getattr(check, 'evidence', {}) or {})
+    return payload
+
+
 def build_scan_response(scan: Scan, include_checks: bool = True, include_evidence: bool = True) -> dict[str, Any]:
     check_results = list(scan.check_results.all().order_by('-risk_points'))
     top_reasons = [
@@ -77,6 +90,46 @@ def build_scan_response(scan: Scan, include_checks: bool = True, include_evidenc
         'disclaimer': DISCLAIMER_TEXT,
     }
     payload['checks'] = full_breakdown if include_checks else []
+    return payload
+
+
+def build_private_scan_response(
+    domain: str,
+    signals: dict[str, Any],
+    include_checks: bool = True,
+    include_evidence: bool = True,
+) -> dict[str, Any]:
+    transient_site = Site(domain=domain)
+    engine = RiskEngine(site=transient_site, previous_scan=None)
+    result = engine.run(domain=domain, signals=signals)
+    trust_level = trust_level_from_score(result.risk_score)
+
+    checks_sorted_desc = sorted(result.checks, key=lambda item: item.risk_points, reverse=True)
+    checks_sorted_asc = sorted(result.checks, key=lambda item: item.risk_points)
+
+    top_reasons = [
+        _serialize_engine_check(item, include_evidence=include_evidence)
+        for item in checks_sorted_desc
+        if item.risk_points > 0
+    ][:3]
+    top_reductions = [
+        _serialize_engine_check(item, include_evidence=include_evidence)
+        for item in checks_sorted_asc
+        if item.risk_points < 0
+    ][:3]
+    full_breakdown = [_serialize_engine_check(item, include_evidence=include_evidence) for item in checks_sorted_desc]
+
+    payload = {
+        'risk_score': result.risk_score,
+        'trust_level': trust_level,
+        'top_reasons': top_reasons,
+        'top_reductions': top_reductions,
+        'score_confidence': result.score_confidence,
+        'last_scanned_at': timezone.now(),
+        'disclaimer': f'{DISCLAIMER_TEXT} Private force-check results are only visible to this signed-in user.',
+        'checks': full_breakdown if include_checks else [],
+        'private_result': True,
+    }
     return payload
 
 

@@ -32,7 +32,7 @@ from guard.serializers import (
     SiteListSerializer,
     TokenRefreshSerializer,
 )
-from guard.services import build_scan_response, record_seen_domain, run_and_persist_scan, should_rescan
+from guard.services import build_private_scan_response, build_scan_response, record_seen_domain, run_and_persist_scan, should_rescan
 
 logger = logging.getLogger(__name__)
 
@@ -249,8 +249,21 @@ class ScanAPIView(APIView):
         extension_version = payload.get('extension_version', '')
         include_checks = payload.get('include_checks', False)
         include_evidence = payload.get('include_evidence', False)
+        force_private = payload.get('force_private', False)
         triggered_by = payload.get('triggered_by', TriggeredBy.USER_VISIT)
         user_install_hash = payload.get('user_install_hash') or request.headers.get('X-Install-Hash', '')
+
+        if force_private:
+            response_payload = build_private_scan_response(
+                domain=domain,
+                signals=extracted_signals,
+                include_checks=include_checks,
+                include_evidence=include_evidence,
+            )
+            response_payload['domain'] = domain
+            response_payload['from_cache'] = False
+            response_payload['triggered_by'] = TriggeredBy.MANUAL_LOOKUP
+            return Response(response_payload, status=status.HTTP_200_OK)
 
         if user_install_hash:
             record_seen_domain(domain=domain, user_install_hash=user_install_hash)

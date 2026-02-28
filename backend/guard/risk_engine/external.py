@@ -44,6 +44,26 @@ def _normalize_datetime(value: Any) -> datetime | None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
 
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return None
+        normalized = candidate.replace('Z', '+00:00')
+        try:
+            parsed = datetime.fromisoformat(normalized)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except ValueError:
+            pass
+
+        for pattern in ('%Y-%m-%d', '%Y-%m-%d %H:%M:%S', '%d-%b-%Y', '%d/%m/%Y'):
+            try:
+                parsed = datetime.strptime(candidate, pattern)
+                return parsed.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+
     return None
 
 

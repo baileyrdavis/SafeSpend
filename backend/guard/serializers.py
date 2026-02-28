@@ -13,6 +13,7 @@ class ScanRequestSerializer(serializers.Serializer):
     user_install_hash = serializers.CharField(max_length=128, required=False, allow_blank=True)
     include_checks = serializers.BooleanField(required=False, default=False)
     include_evidence = serializers.BooleanField(required=False, default=False)
+    force_private = serializers.BooleanField(required=False, default=False)
     triggered_by = serializers.ChoiceField(
         choices=TriggeredBy.choices,
         required=False,

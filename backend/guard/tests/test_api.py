@@ -196,6 +196,30 @@ class ScanApiTests(TestCase):
             'registrar': 'Example Registrar',
         },
     )
+    def test_force_private_scan_does_not_persist_site(self, *_mocks):
+        payload = self.scan_payload('private-force-hash')
+        payload['domain'] = 'force-private.example'
+        payload['force_private'] = True
+        payload['triggered_by'] = 'MANUAL_LOOKUP'
+
+        response = self.client.post('/api/scan', payload, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['private_result'])
+        self.assertFalse(response.data['from_cache'])
+        self.assertEqual(response.data['domain'], 'force-private.example')
+        self.assertFalse(Site.objects.filter(domain='force-private.example').exists())
+
+    @patch('guard.risk_engine.external.has_wayback_history', return_value=True)
+    @patch('guard.risk_engine.external.get_https_info', return_value={'has_https': True, 'self_signed': False, 'error': None})
+    @patch('guard.risk_engine.external.get_nameservers', return_value=['ns1.example.net', 'ns2.example.net'])
+    @patch(
+        'guard.risk_engine.external.get_whois_data',
+        return_value={
+            'creation_date': datetime.now(timezone.utc) - timedelta(days=900),
+            'updated_date': datetime.now(timezone.utc) - timedelta(days=120),
+            'registrar': 'Example Registrar',
+        },
+    )
     def test_brand_check_rewards_official_domain(self, *_mocks):
         payload = self.scan_payload('brand-official-hash')
         payload['domain'] = 'target.com.au'
