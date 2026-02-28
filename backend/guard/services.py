@@ -59,6 +59,11 @@ def build_scan_response(scan: Scan, include_checks: bool = True, include_evidenc
         for item in check_results
         if item.risk_points > 0
     ][:3]
+    top_reductions = [
+        _serialize_check_result(item, include_evidence=include_evidence)
+        for item in sorted(check_results, key=lambda item: item.risk_points)
+        if item.risk_points < 0
+    ][:3]
 
     full_breakdown = [_serialize_check_result(item, include_evidence=include_evidence) for item in check_results]
 
@@ -66,6 +71,7 @@ def build_scan_response(scan: Scan, include_checks: bool = True, include_evidenc
         'risk_score': scan.risk_score,
         'trust_level': scan.site.trust_level,
         'top_reasons': top_reasons,
+        'top_reductions': top_reductions,
         'score_confidence': scan.score_confidence,
         'last_scanned_at': scan.scanned_at,
         'disclaimer': DISCLAIMER_TEXT,
