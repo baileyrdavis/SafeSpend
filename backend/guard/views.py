@@ -2,6 +2,7 @@ from urllib.parse import urlencode
 import logging
 
 from django.conf import settings
+from django.db import transaction
 from django.http import Http404
 from django.urls import reverse
 from django.utils import timezone
@@ -231,31 +232,34 @@ class ScanAPIView(APIView):
             site.site_type = SiteType.ECOM
         site.save(update_fields=['last_seen_at', 'site_type'])
 
-        latest_scan = site.scans.order_by('-scanned_at').first()
         current_hash = extracted_signals.get('html_hash')
         from_cache = True
 
-        if should_rescan(site, latest_scan, current_hash):
-            scan = run_and_persist_scan(
-                site=site,
-                domain=domain,
-                signals=extracted_signals,
-                extension_version=extension_version,
-                triggered_by=triggered_by,
-            )
-            from_cache = False
-        else:
-            scan = latest_scan
+        with transaction.atomic():
+            site = Site.objects.select_for_update().get(pk=site.pk)
+            latest_scan = site.scans.order_by('-scanned_at').first()
 
-        if not scan:
-            scan = run_and_persist_scan(
-                site=site,
-                domain=domain,
-                signals=extracted_signals,
-                extension_version=extension_version,
-                triggered_by=triggered_by,
-            )
-            from_cache = False
+            if should_rescan(site, latest_scan, current_hash):
+                scan = run_and_persist_scan(
+                    site=site,
+                    domain=domain,
+                    signals=extracted_signals,
+                    extension_version=extension_version,
+                    triggered_by=triggered_by,
+                )
+                from_cache = False
+            else:
+                scan = latest_scan
+
+            if not scan:
+                scan = run_and_persist_scan(
+                    site=site,
+                    domain=domain,
+                    signals=extracted_signals,
+                    extension_version=extension_version,
+                    triggered_by=triggered_by,
+                )
+                from_cache = False
 
         response_payload = build_scan_response(
             scan,
