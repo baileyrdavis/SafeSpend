@@ -1,0 +1,151 @@
+:root {
+  --bg: #0f172a;
+  --surface: #111827;
+  --surface-alt: #1f2937;
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --risk: #ef4444;
+  --info: #38bdf8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  width: 360px;
+  min-height: 440px;
+  font-family: 'Segoe UI', Tahoma, sans-serif;
+  background: radial-gradient(circle at top, #1e293b 0%, #0f172a 58%, #020617 100%);
+  color: var(--text);
+}
+
+.container {
+  padding: 14px;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 19px;
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.status {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.status.info {
+  background: rgba(56, 189, 248, 0.16);
+  border: 1px solid rgba(56, 189, 248, 0.32);
+}
+
+.status.error {
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.32);
+}
+
+.status.ok {
+  background: rgba(34, 197, 94, 0.16);
+  border: 1px solid rgba(34, 197, 94, 0.32);
+}
+
+.summary,
+.reasons,
+.details {
+  margin-top: 12px;
+  background: rgba(17, 24, 39, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.score-row {
+  display: flex;
+  justify-content: space-between;
+  margin: 6px 0;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.risk-score {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.trust-level {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.meta-value {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.reasons h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+
+ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+li {
+  margin-bottom: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.toggle {
+  width: 100%;
+  background: var(--surface-alt);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  border-color: rgba(148, 163, 184, 0.5);
+}
+
+.footer {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.link-btn {
+  background: transparent;
+  border: 0;
+  color: #93c5fd;
+  font-size: 11px;
+  margin-top: 6px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.hidden {
+  display: none;
+}

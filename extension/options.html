@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ghost-Store Guard Settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <h1>Ghost-Store Guard Settings</h1>
+        <p>Configure backend connection and extension behavior.</p>
+      </header>
+
+      <section class="card">
+        <h2>Backend</h2>
+        <label for="apiBaseUrl">API Base URL</label>
+        <input id="apiBaseUrl" type="url" placeholder="https://your-backend.example.com" />
+
+        <label for="apiToken">API Token (optional)</label>
+        <input id="apiToken" type="password" placeholder="Optional API token" />
+        <p class="hint">Token is stored locally on this browser profile.</p>
+
+        <div class="actions">
+          <button id="saveBtn" type="button">Save Settings</button>
+          <button id="testBtn" type="button">Test Connection</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Caching</h2>
+        <label for="cacheTtlHours">Cache TTL (hours)</label>
+        <input id="cacheTtlHours" type="number" min="1" max="72" />
+
+        <div class="actions">
+          <button id="clearCacheBtn" type="button">Clear Cached Results</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Install Identity</h2>
+        <p id="installHash" class="mono">Loading...</p>
+      </section>
+
+      <p id="status" class="status"></p>
+    </main>
+
+    <script src="options.js"></script>
+  </body>
+</html>

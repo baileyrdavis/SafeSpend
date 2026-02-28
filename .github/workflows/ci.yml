@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: ghost_store_guard
+          POSTGRES_USER: ghost
+          POSTGRES_PASSWORD: ghost
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ghost -d ghost_store_guard"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      DJANGO_SECRET_KEY: ci-secret
+      DEBUG: "False"
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      CORS_ALLOW_ALL_ORIGINS: "True"
+      DATABASE_URL: postgres://ghost:ghost@localhost:5432/ghost_store_guard
+      API_AUTH_TOKEN: ""
+      LOG_LEVEL: INFO
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run checks
+        run: |
+          python manage.py check
+          python manage.py migrate --noinput
+          python manage.py test
+
+  portal:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: portal/package-lock.json
+      - name: Build portal
+        run: |
+          npm ci
+          npm run build

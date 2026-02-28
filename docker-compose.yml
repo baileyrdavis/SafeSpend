@@ -1,0 +1,60 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ghost_store_guard
+      POSTGRES_USER: ghost
+      POSTGRES_PASSWORD: ghost
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ghost -d ghost_store_guard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DJANGO_SECRET_KEY: local-dev-secret
+      DEBUG: "True"
+      APP_VERSION: 0.1.0
+      ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      CORS_ALLOW_ALL_ORIGINS: "True"
+      DATABASE_URL: postgres://ghost:ghost@db:5432/ghost_store_guard
+      LOG_LEVEL: INFO
+      API_AUTH_TOKEN: ""
+      SKIP_COLLECTSTATIC: "1"
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  portal:
+    build:
+      context: ./portal
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000/api
+      VITE_API_TOKEN: ""
+    volumes:
+      - ./portal:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

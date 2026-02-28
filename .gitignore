@@ -1,0 +1,36 @@
+# Python / Django
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+backend/db.sqlite3
+backend/staticfiles/
+
+# Node
+node_modules/
+portal/node_modules/
+portal/dist/
+npm-debug.log*
+
+# Environment
+.env
+backend/.env
+.env.local
+.env.*.local
+
+# Build artifacts
+ghost-store-guard-extension.zip
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

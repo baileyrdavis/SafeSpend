@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ghost-Store Guard</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <h1>Ghost-Store Guard</h1>
+        <p class="subtitle">E-commerce risk summary</p>
+      </header>
+
+      <section id="status" class="status info">Loading current tab...</section>
+
+      <section id="summary" class="summary hidden">
+        <div class="score-row">
+          <span class="label">Risk Score</span>
+          <span id="riskScore" class="risk-score">-</span>
+        </div>
+        <div class="score-row">
+          <span class="label">Trust Level</span>
+          <span id="trustLevel" class="trust-level">-</span>
+        </div>
+        <div class="score-row">
+          <span class="label">Confidence</span>
+          <span id="scoreConfidence" class="meta-value">-</span>
+        </div>
+        <div class="score-row">
+          <span class="label">Scanned At</span>
+          <span id="lastScannedAt" class="meta-value">-</span>
+        </div>
+      </section>
+
+      <section id="reasons" class="reasons hidden">
+        <h2>Top Reasons</h2>
+        <ul id="reasonsList"></ul>
+      </section>
+
+      <section id="details" class="details hidden">
+        <button id="toggleDetails" class="toggle" type="button">Show Detailed Breakdown</button>
+        <ul id="detailsList" class="hidden"></ul>
+      </section>
+
+      <footer class="footer">
+        <p>Risk score is informational only.</p>
+        <button id="openOptions" class="link-btn" type="button">Extension Settings</button>
+      </footer>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
