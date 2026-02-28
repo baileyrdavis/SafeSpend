@@ -13,13 +13,4 @@ try {
   Pop-Location
 }
 
-Write-Host "Building portal..."
-Push-Location (Join-Path $PSScriptRoot "..\portal")
-try {
-  npm install
-  npm run build
-} finally {
-  Pop-Location
-}
-
 Write-Host "All checks complete."

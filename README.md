@@ -9,7 +9,6 @@ SafeSpend is a deterministic browser-based e-commerce risk detection system focu
 - Deterministic modular risk engine (10 checks)
 - Country-aware framework (AU / US / UK)
 - Chrome Extension (Manifest V3)
-- Optional React portal for lookup/admin workflows
 - Docker + Docker Compose local stack
 - Railway deployment config (`backend/railway.toml`)
 - CI, security, CodeQL, and Dependabot GitHub setup
@@ -62,7 +61,6 @@ docker compose up --build
 Local URLs:
 
 - Backend: `http://localhost:8000`
-- Portal: `http://localhost:5173`
 - Postgres: `localhost:5432`
 
 ## Testing
@@ -73,7 +71,6 @@ Quick commands:
 
 ```bash
 cd backend && DJANGO_SETTINGS_MODULE=config.settings.test python manage.py check && DJANGO_SETTINGS_MODULE=config.settings.test python manage.py test
-cd portal && npm install && npm run build
 ```
 
 ## Deployment (Supabase + Railway + R2)

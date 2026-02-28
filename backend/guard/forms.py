@@ -60,3 +60,21 @@ class DeviceApprovalForm(forms.Form):
         if not normalized:
             raise forms.ValidationError('Enter the 8-character verification code from the extension.')
         return normalized
+
+
+class ManualScanForm(forms.Form):
+    domain = forms.CharField(
+        max_length=255,
+        label='Domain',
+        widget=forms.TextInput(
+            attrs={
+                'placeholder': 'example.com',
+                'autocomplete': 'off',
+            },
+        ),
+    )
+    is_ecommerce = forms.BooleanField(
+        required=False,
+        initial=True,
+        label='Mark as e-commerce',
+    )

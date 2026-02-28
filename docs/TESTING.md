@@ -16,7 +16,6 @@ docker compose up --build
 Services:
 
 - Backend API: `http://localhost:8000`
-- Portal: `http://localhost:5173`
 - Postgres: `localhost:5432`
 
 Health check:
@@ -40,16 +39,7 @@ DJANGO_SETTINGS_MODULE=config.settings.test python manage.py check
 DJANGO_SETTINGS_MODULE=config.settings.test python manage.py test
 ```
 
-## 5) Portal Build Verification
-
-From `portal/`:
-
-```bash
-npm install
-npm run build
-```
-
-## 6) Extension Test Flow
+## 5) Extension Test Flow
 
 1. Open `chrome://extensions`
 2. Enable Developer Mode
@@ -65,7 +55,7 @@ npm run build
    - top reasons list appears
    - detailed breakdown loads on demand
 
-## 7) API Manual Checks
+## 6) API Manual Checks
 
 ### Start device auth
 

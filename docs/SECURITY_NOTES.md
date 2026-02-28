@@ -31,5 +31,5 @@
 - Set non-default `DJANGO_SECRET_KEY`
 - Keep `CORS_ALLOW_ALL_ORIGINS=False`
 - Set `API_REQUIRE_AUTH=True`
-- Use HTTPS backend URL for extension and portal
+- Use HTTPS backend URL for extension
 - Rotate/expire admin/static tokens if enabled

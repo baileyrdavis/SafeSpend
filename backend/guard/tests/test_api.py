@@ -129,7 +129,7 @@ class ScanApiTests(TestCase):
         response = self.client.post(
             '/api/site/example.com/rescan',
             {
-                'extension_version': 'portal',
+                'extension_version': 'manual',
                 'extracted_signals': {'is_ecommerce': True, 'html_hash': 'hash-b'},
             },
             format='json',

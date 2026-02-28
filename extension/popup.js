@@ -27,6 +27,24 @@ function setStatus(message, type = 'info') {
   status.textContent = message;
 }
 
+function setButtonLoading(button, loadingText, isLoading, restoreLabel = true) {
+  if (!button) return;
+  if (!button.dataset.defaultLabel) {
+    button.dataset.defaultLabel = button.textContent;
+  }
+  if (isLoading) {
+    button.disabled = true;
+    button.classList.add('loading');
+    button.textContent = loadingText;
+    return;
+  }
+  button.disabled = false;
+  button.classList.remove('loading');
+  if (restoreLabel) {
+    button.textContent = button.dataset.defaultLabel;
+  }
+}
+
 function renderAuthState(auth) {
   const panel = byId('authState');
   const connectBtn = byId('connectBtn');
@@ -144,32 +162,40 @@ async function refreshPopupData() {
 }
 
 async function beginAuthFlow() {
-  const response = await sendMessage({ type: 'BEGIN_AUTH_FLOW' });
-  if (!response?.ok) {
-    setStatus(response?.error || 'Could not start sign-in.', 'error');
-  } else {
-    setStatus('Sign-in page opened. Complete login to continue.', 'info');
+  const connectBtn = byId('connectBtn');
+  setButtonLoading(connectBtn, 'Connecting...', true);
+  setStatus('Starting sign-in flow...', 'info');
+  try {
+    const response = await sendMessage({ type: 'BEGIN_AUTH_FLOW' });
+    if (!response?.ok) {
+      setStatus(response?.error || 'Could not start sign-in.', 'error');
+    } else {
+      setStatus('Sign-in page opened. Complete login to continue.', 'info');
+    }
+    renderAuthState(response?.auth || null);
+  } finally {
+    setButtonLoading(connectBtn, '', false, false);
   }
-  renderAuthState(response?.auth || null);
 }
 
 async function loadDetailedBreakdown() {
   const button = byId('loadDetailsBtn');
-  button.disabled = true;
-  button.textContent = 'Loading Details...';
+  setButtonLoading(button, 'Loading Details...', true);
+  setStatus('Loading detailed checks...', 'info');
+  try {
+    const response = await sendMessage({ type: 'GET_DETAILED_RESULT_FOR_ACTIVE_TAB' });
+    if (!response?.ok) {
+      renderAuthState(response?.auth || null);
+      setStatus(response?.error || 'Could not load detailed checks.', 'error');
+      return;
+    }
 
-  const response = await sendMessage({ type: 'GET_DETAILED_RESULT_FOR_ACTIVE_TAB' });
-  if (!response?.ok) {
-    renderAuthState(response?.auth || null);
-    setStatus(response?.error || 'Could not load detailed checks.', 'error');
-    button.disabled = false;
-    button.textContent = 'Load Detailed Breakdown';
-    return;
+    renderDetails(Array.isArray(response.checks) ? response.checks : []);
+    setStatus('Detailed checks loaded.', 'ok');
+    button.dataset.defaultLabel = 'Reload Detailed Breakdown';
+  } finally {
+    setButtonLoading(button, '', false);
   }
-
-  renderDetails(Array.isArray(response.checks) ? response.checks : []);
-  button.disabled = false;
-  button.textContent = 'Reload Detailed Breakdown';
 }
 
 function setupInteractions() {

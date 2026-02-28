@@ -48,20 +48,3 @@ jobs:
           python manage.py makemigrations --check --dry-run
           python manage.py migrate --noinput
           python manage.py test
-
-  portal:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: portal
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: portal/package-lock.json
-      - name: Build portal
-        run: |
-          npm ci
-          npm run build

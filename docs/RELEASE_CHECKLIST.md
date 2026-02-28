@@ -7,7 +7,7 @@
 - [ ] Strong `DJANGO_SECRET_KEY`
 - [ ] `ALLOWED_HOSTS` locked to production hosts
 - [ ] `CORS_ALLOW_ALL_ORIGINS=False`
-- [ ] `CORS_ALLOWED_ORIGINS` includes portal + extension origin only
+- [ ] `CORS_ALLOWED_ORIGINS` includes extension origin only
 - [ ] `CSRF_TRUSTED_ORIGINS` configured
 - [ ] `DATABASE_URL` points to Supabase Postgres
 - [ ] `API_REQUIRE_AUTH=True`
@@ -18,12 +18,6 @@
 
 - [ ] Recheck cron configured: `python manage.py recheck_sites --days 7 --limit 500`
 - [ ] Logs monitored for WHOIS/DNS/network failure spikes
-
-## Portal
-
-- [ ] `VITE_API_BASE_URL` points to production backend
-- [ ] Optional `VITE_API_TOKEN` set only if using static token mode
-- [ ] Portal build passes: `npm run build`
 
 ## Extension
 

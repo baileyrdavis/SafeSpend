@@ -119,7 +119,7 @@ class SeenTelemetrySerializer(serializers.Serializer):
 
 class RescanRequestSerializer(serializers.Serializer):
     extracted_signals = serializers.JSONField(required=False, default=dict)
-    extension_version = serializers.CharField(max_length=32, required=False, allow_blank=True, default='portal')
+    extension_version = serializers.CharField(max_length=32, required=False, allow_blank=True, default='manual')
     include_checks = serializers.BooleanField(required=False, default=True)
     include_evidence = serializers.BooleanField(required=False, default=True)
 

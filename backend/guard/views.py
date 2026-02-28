@@ -116,7 +116,14 @@ class DeviceAuthPollAPIView(APIView):
         except AuthServiceError as error:
             return _auth_error_response(error)
         except Exception:
-            logger.exception('Unexpected device authorization polling failure.')
+            install_hash = serializer.validated_data.get('install_hash', '')
+            device_code = serializer.validated_data.get('device_code', '')
+            logger.exception(
+                'Unexpected device authorization polling failure '
+                '(install_hash_len=%s, device_code_len=%s).',
+                len(install_hash),
+                len(device_code),
+            )
             return Response(
                 {
                     'error': 'server_error',
@@ -348,7 +355,7 @@ class SiteRescanAPIView(APIView):
             raise Http404('Site not indexed') from exc
 
         extracted_signals = serializer.validated_data.get('extracted_signals') or {}
-        extension_version = serializer.validated_data.get('extension_version', 'portal')
+        extension_version = serializer.validated_data.get('extension_version', 'manual')
         include_checks = serializer.validated_data.get('include_checks', True)
         include_evidence = serializer.validated_data.get('include_evidence', True)
 

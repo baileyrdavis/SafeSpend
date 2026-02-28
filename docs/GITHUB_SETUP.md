@@ -37,9 +37,7 @@ Require:
 - At least 1 approving review
 - Status checks to pass before merge:
   - `backend`
-  - `portal`
 - `backend-security`
-- `portal-security`
 - `analyze (python)` / `analyze (javascript)` from CodeQL
 - Dismiss stale approvals on new commits
 - Require conversation resolution
@@ -64,7 +62,6 @@ Dependabot will open weekly PRs for:
 
 - GitHub Actions
 - Python dependencies in `backend/`
-- NPM dependencies in `portal/`
 - Docker base image dependencies in `backend/`
 
 Review and merge regularly to keep the stack patched.

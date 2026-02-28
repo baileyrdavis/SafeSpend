@@ -1,0 +1,10 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  {% if request.user.is_superuser %}
+    <li>
+      <a href="{% url 'admin:guard_site_manual_scan' %}">Manual Domain Scan</a>
+    </li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

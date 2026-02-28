@@ -35,6 +35,24 @@ function setStatus(message, type = 'success') {
   status.textContent = message;
 }
 
+function setButtonLoading(button, loadingText, isLoading, restoreLabel = true) {
+  if (!button) return;
+  if (!button.dataset.defaultLabel) {
+    button.dataset.defaultLabel = button.textContent;
+  }
+  if (isLoading) {
+    button.disabled = true;
+    button.classList.add('loading');
+    button.textContent = loadingText;
+    return;
+  }
+  button.disabled = false;
+  button.classList.remove('loading');
+  if (restoreLabel) {
+    button.textContent = button.dataset.defaultLabel;
+  }
+}
+
 function renderAuthSummary(auth) {
   const summary = byId('authSummary');
   const connectBtn = byId('connectBtn');
@@ -87,42 +105,51 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
-  const currentSettings = await storageGet('sync', ['api_base_url']);
-  const apiBaseUrl = byId('apiBaseUrl').value.trim().replace(/\/$/, '');
-  const cacheTtlHoursRaw = Number(byId('cacheTtlHours').value);
-  const cacheTtlHours = Math.max(1, Math.min(72, Number.isFinite(cacheTtlHoursRaw) ? cacheTtlHoursRaw : DEFAULT_CACHE_TTL_HOURS));
+  const button = byId('saveBtn');
+  setButtonLoading(button, 'Saving...', true);
+  try {
+    const currentSettings = await storageGet('sync', ['api_base_url']);
+    const apiBaseUrl = byId('apiBaseUrl').value.trim().replace(/\/$/, '');
+    const cacheTtlHoursRaw = Number(byId('cacheTtlHours').value);
+    const cacheTtlHours = Math.max(1, Math.min(72, Number.isFinite(cacheTtlHoursRaw) ? cacheTtlHoursRaw : DEFAULT_CACHE_TTL_HOURS));
 
-  if (!apiBaseUrl) {
-    setStatus('API base URL is required.', 'error');
-    return;
+    if (!apiBaseUrl) {
+      setStatus('API base URL is required.', 'error');
+      return;
+    }
+
+    const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(apiBaseUrl);
+    if (!apiBaseUrl.startsWith('https://') && !isLocalhost) {
+      setStatus('Use HTTPS for non-localhost API URLs.', 'error');
+      return;
+    }
+
+    await storageSet('sync', {
+      api_base_url: apiBaseUrl,
+      cache_ttl_hours: cacheTtlHours
+    });
+
+    if ((currentSettings.api_base_url || DEFAULT_API_BASE_URL).replace(/\/$/, '') !== apiBaseUrl) {
+      await sendMessage({ type: 'SIGN_OUT' });
+      await sendMessage({ type: 'CLEAR_EXTENSION_CACHE' });
+      renderAuthSummary({ authenticated: false, in_progress: false, auth_error: '' });
+      setStatus('Settings saved. Please reconnect SafeSpend for this API.', 'success');
+      return;
+    }
+
+    setStatus('Settings saved.');
+  } finally {
+    setButtonLoading(button, '', false, false);
   }
-
-  const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(apiBaseUrl);
-  if (!apiBaseUrl.startsWith('https://') && !isLocalhost) {
-    setStatus('Use HTTPS for non-localhost API URLs.', 'error');
-    return;
-  }
-
-  await storageSet('sync', {
-    api_base_url: apiBaseUrl,
-    cache_ttl_hours: cacheTtlHours
-  });
-
-  if ((currentSettings.api_base_url || DEFAULT_API_BASE_URL).replace(/\/$/, '') !== apiBaseUrl) {
-    await sendMessage({ type: 'SIGN_OUT' });
-    await sendMessage({ type: 'CLEAR_EXTENSION_CACHE' });
-    renderAuthSummary({ authenticated: false, in_progress: false, auth_error: '' });
-    setStatus('Settings saved. Please reconnect SafeSpend for this API.', 'success');
-    return;
-  }
-
-  setStatus('Settings saved.');
 }
 
 async function testConnection() {
+  const button = byId('testBtn');
+  setButtonLoading(button, 'Testing...', true);
   const apiBaseUrl = byId('apiBaseUrl').value.trim().replace(/\/$/, '');
   if (!apiBaseUrl) {
     setStatus('Enter API base URL before testing.', 'error');
+    setButtonLoading(button, '', false);
     return;
   }
 
@@ -134,34 +161,57 @@ async function testConnection() {
     setStatus('Connection OK.');
   } catch (error) {
     setStatus(`Connection failed: ${error.message || 'unknown error'}`, 'error');
+  } finally {
+    setButtonLoading(button, '', false);
   }
 }
 
 async function connectAccount() {
-  const response = await sendMessage({ type: 'BEGIN_AUTH_FLOW' });
-  if (!response?.ok) {
-    setStatus(response?.error || 'Could not start sign-in.', 'error');
-    renderAuthSummary(response?.auth || null);
-    return;
-  }
+  const button = byId('connectBtn');
+  setButtonLoading(button, 'Connecting...', true);
+  setStatus('Starting sign-in flow...', 'info');
+  try {
+    const response = await sendMessage({ type: 'BEGIN_AUTH_FLOW' });
+    if (!response?.ok) {
+      setStatus(response?.error || 'Could not start sign-in.', 'error');
+      renderAuthSummary(response?.auth || null);
+      return;
+    }
 
-  renderAuthSummary(response.auth || null);
-  setStatus('Sign-in page opened. Finish login there, then return here.');
+    renderAuthSummary(response.auth || null);
+    setStatus('Sign-in page opened. Finish login there, then return here.');
+  } finally {
+    setButtonLoading(button, '', false);
+  }
 }
 
 async function signOutAccount() {
-  const response = await sendMessage({ type: 'SIGN_OUT' });
-  if (!response?.ok) {
-    setStatus(response?.error || 'Could not sign out.', 'error');
-    return;
+  const button = byId('signOutBtn');
+  setButtonLoading(button, 'Signing out...', true);
+  setStatus('Signing out...', 'info');
+  try {
+    const response = await sendMessage({ type: 'SIGN_OUT' });
+    if (!response?.ok) {
+      setStatus(response?.error || 'Could not sign out.', 'error');
+      return;
+    }
+    renderAuthSummary(response.auth || null);
+    setStatus('Signed out for this browser.');
+  } finally {
+    setButtonLoading(button, '', false);
   }
-  renderAuthSummary(response.auth || null);
-  setStatus('Signed out for this browser.');
 }
 
 async function clearCache() {
-  await sendMessage({ type: 'CLEAR_EXTENSION_CACHE' });
-  setStatus('Cached scan results cleared.');
+  const button = byId('clearCacheBtn');
+  setButtonLoading(button, 'Clearing...', true);
+  setStatus('Clearing cached results...', 'info');
+  try {
+    await sendMessage({ type: 'CLEAR_EXTENSION_CACHE' });
+    setStatus('Cached scan results cleared.');
+  } finally {
+    setButtonLoading(button, '', false);
+  }
 }
 
 byId('saveBtn').addEventListener('click', saveSettings);

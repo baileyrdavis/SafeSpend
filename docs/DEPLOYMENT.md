@@ -40,8 +40,8 @@
 - `ALLOWED_HOSTS=<railway-domain>,<custom-domain>`
 - `DATABASE_URL=<supabase-connection-string>`
 - `CORS_ALLOW_ALL_ORIGINS=False`
-- `CORS_ALLOWED_ORIGINS=http://localhost:5173,https://<portal-domain>,chrome-extension://<extension-id>`
-- `CSRF_TRUSTED_ORIGINS=https://<backend-domain>,https://<portal-domain>`
+- `CORS_ALLOWED_ORIGINS=chrome-extension://<extension-id>`
+- `CSRF_TRUSTED_ORIGINS=https://<backend-domain>`
 - `API_REQUIRE_AUTH=True`
 - `API_AUTH_TOKEN=` (optional static fallback)
 - `DEVICE_AUTH_EXPIRES_SECONDS=900`
@@ -86,14 +86,7 @@ MVP currently stores HTML hash evidence in Postgres; R2 is pre-wired for future 
 3. Extension `Connect SafeSpend` opens `/auth/device/verify`.
 4. Approved extension can scan and show score/reasons.
 
-## 7) Portal Deployment
-
-Portal can be local/internal or separately deployed.
-
-- Set `VITE_API_BASE_URL` to your backend URL (`.../api`)
-- If using static token mode for portal automation, set `VITE_API_TOKEN`
-
-## 8) Scheduled Rechecks
+## 7) Scheduled Rechecks
 
 Use Railway cron/job service:
 
@@ -107,7 +100,7 @@ Dry run:
 python manage.py recheck_sites --dry-run
 ```
 
-## 9) Extension Package for Beta
+## 8) Extension Package for Beta
 
 From repo root (PowerShell):
 

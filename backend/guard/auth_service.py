@@ -186,7 +186,7 @@ def exchange_device_code_for_tokens(*, device_code: str, install_hash: str) -> T
 
     session_hash = hash_secret(device_code)
     try:
-        session = DeviceAuthSession.objects.select_for_update().select_related('approved_by').get(
+        session = DeviceAuthSession.objects.select_for_update().get(
             device_code_hash=session_hash,
         )
     except DeviceAuthSession.DoesNotExist as exc:
@@ -251,7 +251,6 @@ def refresh_access_token(*, refresh_token: str, install_hash: str) -> TokenPair:
         refresh_record = ApiRefreshToken.objects.select_for_update().select_related(
             'user',
             'access_token',
-            'created_from_device',
         ).get(token_hash=refresh_hash)
     except ApiRefreshToken.DoesNotExist as exc:
         raise AuthServiceError('invalid_grant', 'Refresh token is invalid.', HTTPStatus.UNAUTHORIZED) from exc
