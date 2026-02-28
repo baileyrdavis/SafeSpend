@@ -1,6 +1,7 @@
 from .base import *  # noqa: F401,F403
 
 DEBUG = False
+API_REQUIRE_AUTH = False
 SECURE_SSL_REDIRECT = False
 SESSION_COOKIE_SECURE = False
 CSRF_COOKIE_SECURE = False

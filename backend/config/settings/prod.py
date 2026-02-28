@@ -1,6 +1,7 @@
 from .base import *  # noqa: F401,F403
 
 DEBUG = False
+API_REQUIRE_AUTH = env.bool('API_REQUIRE_AUTH', default=True)
 
 if SECRET_KEY == 'django-insecure-change-me':
     raise RuntimeError('DJANGO_SECRET_KEY must be set in production.')

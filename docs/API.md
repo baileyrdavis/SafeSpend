@@ -2,11 +2,66 @@
 
 Base path: `/api`
 
-## GET `/health`
-Returns service health status.
-Response includes `status`, `timestamp`, and `version`.
+## Health
 
-## POST `/scan`
+### `GET /health`
+Returns service status.
+
+## Extension Auth (Device Flow)
+
+### `POST /auth/device/start`
+Starts extension login flow.
+
+Request:
+
+```json
+{
+  "install_hash": "f60be8c0...",
+  "extension_version": "0.1.0"
+}
+```
+
+Response:
+
+```json
+{
+  "device_code": "opaque-device-code",
+  "user_code": "ABCD-EFGH",
+  "verification_uri": "https://api.example.com/auth/device/verify",
+  "verification_uri_complete": "https://api.example.com/auth/device/verify?user_code=ABCD-EFGH",
+  "expires_in": 900,
+  "interval": 5
+}
+```
+
+### `POST /auth/device/poll`
+Polls for device approval and exchanges for token pair.
+
+Request:
+
+```json
+{
+  "device_code": "opaque-device-code",
+  "install_hash": "f60be8c0..."
+}
+```
+
+Pending response: `428` with `error=authorization_pending`.
+Approved response: returns access + refresh tokens.
+
+### `POST /auth/token/refresh`
+Rotates refresh token and returns a fresh access token pair.
+
+### `GET /auth/session`
+Checks if current Bearer token is valid.
+
+### `POST /auth/logout`
+Revokes active token family for the current install.
+
+## Scanning
+
+### `POST /scan`
+
 Request:
 
 ```json
@@ -15,7 +70,9 @@ Request:
   "extracted_signals": {},
   "extension_version": "0.1.0",
   "user_install_hash": "abc123",
-  "triggered_by": "USER_VISIT"
+  "triggered_by": "USER_VISIT",
+  "include_checks": false,
+  "include_evidence": false
 }
 ```
 
@@ -25,28 +82,21 @@ Response includes:
 - `risk_score`
 - `trust_level`
 - `top_reasons`
-- `checks`
 - `score_confidence`
 - `last_scanned_at`
 - `from_cache`
 - `disclaimer`
+- `checks` (empty by default unless `include_checks=true`)
 
-## GET `/site/{domain}`
-Returns indexed site details and latest scan with full check breakdown.
+## Index + Lookup
 
-## POST `/site/{domain}/rescan`
-Triggers immediate re-scan of an indexed domain.
+### `GET /site/{domain}`
+Returns indexed site detail and latest scan check breakdown.
 
-Request body (optional):
+### `POST /site/{domain}/rescan`
+Forces an indexed domain re-scan.
 
-```json
-{
-  "extension_version": "portal-rescan",
-  "extracted_signals": {}
-}
-```
-
-## GET `/sites`
+### `GET /sites`
 Query params:
 
 - `limit` (default 50, max 200)
@@ -54,23 +104,15 @@ Query params:
 - `min_risk_score` (0-100)
 - `q` (domain contains)
 
-## POST `/telemetry/seen`
-Request:
-
-```json
-{
-  "domain": "example.com",
-  "user_install_hash": "client-install-id"
-}
-```
-
-When 3 unique install hashes are observed for a domain, it is promoted to indexed `Site`.
+### `POST /telemetry/seen`
+Records seen domain + install hash.
+When 3 unique install hashes are seen, domain is promoted to indexed `Site`.
 
 ## Authentication
 
-If `API_AUTH_TOKEN` is configured, include either:
+Protected endpoints require one of:
 
-- `X-API-Token: <token>`
-- `Authorization: Bearer <token>`
+1. `Authorization: Bearer <access_token>` from device flow
+2. `X-API-Token: <static_token>` (optional fallback for admin/internal tools)
 
-`/health` remains publicly accessible.
+`/health` and device auth start/poll/refresh are publicly callable by design.

@@ -1,5 +1,8 @@
+from urllib.parse import urlencode
+
 from django.conf import settings
 from django.http import Http404
+from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny
@@ -7,21 +10,51 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from guard.auth import ApiTokenPermission
+from guard.auth_service import (
+    AuthServiceError,
+    create_device_auth_session,
+    exchange_device_code_for_tokens,
+    refresh_access_token,
+    revoke_install_tokens,
+)
 from guard.domain_utils import normalize_domain
 from guard.models import SeenSite, Site, SiteType, TriggeredBy
 from guard.serializers import (
+    DeviceAuthPollSerializer,
+    DeviceAuthStartSerializer,
     RescanRequestSerializer,
     ScanRequestSerializer,
     SeenTelemetrySerializer,
     SiteDetailSerializer,
     SiteListSerializer,
+    TokenRefreshSerializer,
 )
-from guard.services import (
-    build_scan_response,
-    record_seen_domain,
-    run_and_persist_scan,
-    should_rescan,
-)
+from guard.services import build_scan_response, record_seen_domain, run_and_persist_scan, should_rescan
+
+
+def _auth_error_response(error: AuthServiceError) -> Response:
+    return Response(
+        {
+            'error': error.code,
+            'detail': error.message,
+        },
+        status=error.http_status,
+    )
+
+
+def _token_response_payload(token_pair) -> dict:
+    now = timezone.now()
+    access_expires_in = max(int((token_pair.access_token_expires_at - now).total_seconds()), 0)
+    refresh_expires_in = max(int((token_pair.refresh_token_expires_at - now).total_seconds()), 0)
+    return {
+        'token_type': 'Bearer',
+        'access_token': token_pair.access_token,
+        'access_token_expires_in': access_expires_in,
+        'access_token_expires_at': token_pair.access_token_expires_at,
+        'refresh_token': token_pair.refresh_token,
+        'refresh_token_expires_in': refresh_expires_in,
+        'refresh_token_expires_at': token_pair.refresh_token_expires_at,
+    }
 
 
 class HealthAPIView(APIView):
@@ -31,6 +64,125 @@ class HealthAPIView(APIView):
 
     def get(self, request):
         return Response({'status': 'ok', 'timestamp': timezone.now(), 'version': settings.APP_VERSION})
+
+
+class DeviceAuthStartAPIView(APIView):
+    throttle_scope = 'auth_start'
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = DeviceAuthStartSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        session, device_code = create_device_auth_session(
+            install_hash=serializer.validated_data['install_hash'],
+        )
+        verification_uri = request.build_absolute_uri(reverse('device-verify'))
+        verification_uri_complete = f"{verification_uri}?{urlencode({'user_code': session.user_code})}"
+        expires_in = max(int((session.expires_at - timezone.now()).total_seconds()), 0)
+
+        return Response(
+            {
+                'device_code': device_code,
+                'user_code': session.user_code,
+                'verification_uri': verification_uri,
+                'verification_uri_complete': verification_uri_complete,
+                'expires_in': expires_in,
+                'interval': session.interval_seconds,
+                'disclaimer': 'Risk score is informational only.',
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DeviceAuthPollAPIView(APIView):
+    throttle_scope = 'auth_poll'
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = DeviceAuthPollSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            token_pair = exchange_device_code_for_tokens(
+                device_code=serializer.validated_data['device_code'],
+                install_hash=serializer.validated_data['install_hash'],
+            )
+        except AuthServiceError as error:
+            return _auth_error_response(error)
+
+        return Response(_token_response_payload(token_pair), status=status.HTTP_200_OK)
+
+
+class TokenRefreshAPIView(APIView):
+    throttle_scope = 'auth_refresh'
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = TokenRefreshSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            token_pair = refresh_access_token(
+                refresh_token=serializer.validated_data['refresh_token'],
+                install_hash=serializer.validated_data['install_hash'],
+            )
+        except AuthServiceError as error:
+            return _auth_error_response(error)
+
+        return Response(_token_response_payload(token_pair), status=status.HTTP_200_OK)
+
+
+class AuthSessionAPIView(APIView):
+    throttle_scope = 'default'
+    authentication_classes = []
+    permission_classes = [ApiTokenPermission]
+
+    def get(self, request):
+        access_token = getattr(request, 'guard_access_token', None)
+        user = getattr(request, 'guard_user', None)
+        auth_mode = getattr(request, 'guard_auth_mode', 'unknown')
+        return Response(
+            {
+                'authenticated': auth_mode in {'access-token', 'static-token'},
+                'auth_mode': auth_mode,
+                'user': user.get_username() if user else None,
+                'access_token_expires_at': access_token.expires_at if access_token else None,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class LogoutAPIView(APIView):
+    throttle_scope = 'auth_refresh'
+    authentication_classes = []
+    permission_classes = [ApiTokenPermission]
+
+    def post(self, request):
+        access_token = getattr(request, 'guard_access_token', None)
+        if access_token is None:
+            return Response(
+                {
+                    'detail': 'Logout with static token mode is not supported.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        access_revoked, refresh_revoked = revoke_install_tokens(
+            user_id=access_token.user_id,
+            install_hash=access_token.install_hash,
+        )
+        return Response(
+            {
+                'ok': True,
+                'access_tokens_revoked': access_revoked,
+                'refresh_tokens_revoked': refresh_revoked,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ScanAPIView(APIView):
@@ -46,6 +198,8 @@ class ScanAPIView(APIView):
         domain = payload['domain']
         extracted_signals = payload.get('extracted_signals') or {}
         extension_version = payload.get('extension_version', '')
+        include_checks = payload.get('include_checks', False)
+        include_evidence = payload.get('include_evidence', False)
         triggered_by = payload.get('triggered_by', TriggeredBy.USER_VISIT)
         user_install_hash = payload.get('user_install_hash') or request.headers.get('X-Install-Hash', '')
 
@@ -84,10 +238,14 @@ class ScanAPIView(APIView):
             )
             from_cache = False
 
-        payload = build_scan_response(scan)
-        payload['domain'] = domain
-        payload['from_cache'] = from_cache
-        return Response(payload, status=status.HTTP_200_OK)
+        response_payload = build_scan_response(
+            scan,
+            include_checks=include_checks,
+            include_evidence=include_evidence,
+        )
+        response_payload['domain'] = domain
+        response_payload['from_cache'] = from_cache
+        return Response(response_payload, status=status.HTTP_200_OK)
 
 
 class SiteDetailAPIView(APIView):
@@ -150,12 +308,7 @@ class SeenTelemetryAPIView(APIView):
         user_install_hash = serializer.validated_data['user_install_hash']
 
         _, promoted = record_seen_domain(domain=domain, user_install_hash=user_install_hash)
-        unique_install_count = (
-            SeenSite.objects.filter(domain=domain)
-            .values('user_install_hash')
-            .distinct()
-            .count()
-        )
+        unique_install_count = SeenSite.objects.filter(domain=domain).values('user_install_hash').distinct().count()
 
         return Response(
             {
@@ -184,6 +337,8 @@ class SiteRescanAPIView(APIView):
 
         extracted_signals = serializer.validated_data.get('extracted_signals') or {}
         extension_version = serializer.validated_data.get('extension_version', 'portal')
+        include_checks = serializer.validated_data.get('include_checks', True)
+        include_evidence = serializer.validated_data.get('include_evidence', True)
 
         if site.site_type == SiteType.ECOM and 'is_ecommerce' not in extracted_signals:
             extracted_signals['is_ecommerce'] = True
@@ -196,8 +351,8 @@ class SiteRescanAPIView(APIView):
             triggered_by=TriggeredBy.RECHECK,
         )
 
-        payload = build_scan_response(scan)
-        payload['domain'] = normalized_domain
-        payload['from_cache'] = False
-        payload['triggered_by'] = TriggeredBy.RECHECK
-        return Response(payload, status=status.HTTP_200_OK)
+        response_payload = build_scan_response(scan, include_checks=include_checks, include_evidence=include_evidence)
+        response_payload['domain'] = normalized_domain
+        response_payload['from_cache'] = False
+        response_payload['triggered_by'] = TriggeredBy.RECHECK
+        return Response(response_payload, status=status.HTTP_200_OK)

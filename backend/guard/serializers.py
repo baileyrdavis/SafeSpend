@@ -11,6 +11,8 @@ class ScanRequestSerializer(serializers.Serializer):
     extracted_signals = serializers.JSONField(required=False, default=dict)
     extension_version = serializers.CharField(max_length=32, required=False, allow_blank=True)
     user_install_hash = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    include_checks = serializers.BooleanField(required=False, default=False)
+    include_evidence = serializers.BooleanField(required=False, default=False)
     triggered_by = serializers.ChoiceField(
         choices=TriggeredBy.choices,
         required=False,
@@ -61,7 +63,6 @@ class ScanSerializer(serializers.ModelSerializer):
             'score_confidence',
             'triggered_by',
             'check_results',
-            'raw_signals',
         ]
 
 
@@ -119,6 +120,8 @@ class SeenTelemetrySerializer(serializers.Serializer):
 class RescanRequestSerializer(serializers.Serializer):
     extracted_signals = serializers.JSONField(required=False, default=dict)
     extension_version = serializers.CharField(max_length=32, required=False, allow_blank=True, default='portal')
+    include_checks = serializers.BooleanField(required=False, default=True)
+    include_evidence = serializers.BooleanField(required=False, default=True)
 
     def validate_extracted_signals(self, value):
         if value is None:
@@ -135,3 +138,18 @@ class SeenSiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = SeenSite
         fields = ['domain', 'first_seen_at', 'user_install_hash', 'promoted_to_indexed']
+
+
+class DeviceAuthStartSerializer(serializers.Serializer):
+    install_hash = serializers.CharField(min_length=24, max_length=128)
+    extension_version = serializers.CharField(max_length=32, required=False, allow_blank=True)
+
+
+class DeviceAuthPollSerializer(serializers.Serializer):
+    device_code = serializers.CharField(min_length=24, max_length=256)
+    install_hash = serializers.CharField(min_length=24, max_length=128)
+
+
+class TokenRefreshSerializer(serializers.Serializer):
+    refresh_token = serializers.CharField(min_length=24, max_length=256)
+    install_hash = serializers.CharField(min_length=24, max_length=128)

@@ -2,28 +2,34 @@
 
 ## Key Controls Implemented
 
-- Input validation for domain and scan payloads
-- API throttling by endpoint scope (`scan`, `telemetry`, `lookup`, `rescan`)
-- Optional API token auth (`X-API-Token` / Bearer)
+- Strict input validation for domains and scan/auth payloads
+- Scoped API throttling by endpoint (`scan`, `telemetry`, `lookup`, `rescan`, auth endpoints)
+- Opaque hashed access/refresh token auth with rotation and revocation
+- Session-backed device approval flow (`/auth/device/verify`)
+- Optional static admin API token fallback (`API_AUTH_TOKEN`)
 - Production-safe defaults in `config.settings.prod`
-- Strict security headers (`X_FRAME_OPTIONS`, referrer policy, content sniffing protection)
-- HTTPS + secure cookies enabled in production settings
-- CORS lock-down support via env (`CORS_ALLOWED_ORIGINS`)
-- CSRF trusted origin support for portal/admin workflows
-- Extension CSP configured in manifest
-- Extension token stored in local profile storage (not sync storage)
-- SSRF hardening for HTTPS checks (block non-public IP targets)
+- Security headers:
+  - `X_FRAME_OPTIONS=DENY`
+  - `SECURE_CONTENT_TYPE_NOSNIFF=True`
+  - `SECURE_REFERRER_POLICY=strict-origin-when-cross-origin`
+- HTTPS redirect and secure cookies in production settings
+- CORS/CSRF allowlists configured through environment variables
+- Extension CSP set via MV3 manifest
+- Extension stores summary cache only; detailed checks are fetched on demand
+- SSRF hardening for outbound HTTPS checks (non-public IP targets blocked)
 
 ## Operational Controls
 
-- CI + security workflow
+- CI + security workflows in GitHub Actions
 - Dependabot updates for pip/npm/docker/github-actions
+- CodeQL analysis workflow
 - Scheduled stale-site rechecks via management command
 
 ## Required Deployment Hygiene
 
-- Use `config.settings.prod` in production
+- Use `config.settings.prod`
 - Set non-default `DJANGO_SECRET_KEY`
-- Keep `CORS_ALLOW_ALL_ORIGINS=False` in production
-- Use HTTPS endpoint for portal/extension API calls
-- Rotate `API_AUTH_TOKEN` if used
+- Keep `CORS_ALLOW_ALL_ORIGINS=False`
+- Set `API_REQUIRE_AUTH=True`
+- Use HTTPS backend URL for extension and portal
+- Rotate/expire admin/static tokens if enabled

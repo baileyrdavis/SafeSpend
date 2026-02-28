@@ -1,5 +1,5 @@
 param(
-  [string]$Output = "ghost-store-guard-extension.zip"
+  [string]$Output = "safespend-extension.zip"
 )
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")

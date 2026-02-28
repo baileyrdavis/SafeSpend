@@ -17,7 +17,7 @@
 body {
   margin: 0;
   width: 360px;
-  min-height: 440px;
+  min-height: 470px;
   font-family: 'Segoe UI', Tahoma, sans-serif;
   background: radial-gradient(circle at top, #1e293b 0%, #0f172a 58%, #020617 100%);
   color: var(--text);
@@ -38,6 +38,7 @@ body {
   font-size: 12px;
 }
 
+.auth-card,
 .status {
   margin-top: 12px;
   padding: 10px;
@@ -45,9 +46,21 @@ body {
   font-size: 13px;
 }
 
+.auth-card.info,
 .status.info {
   background: rgba(56, 189, 248, 0.16);
   border: 1px solid rgba(56, 189, 248, 0.32);
+}
+
+.auth-card.warn {
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+}
+
+.auth-card.ok,
+.status.ok {
+  background: rgba(34, 197, 94, 0.16);
+  border: 1px solid rgba(34, 197, 94, 0.32);
 }
 
 .status.error {
@@ -55,9 +68,23 @@ body {
   border: 1px solid rgba(239, 68, 68, 0.32);
 }
 
-.status.ok {
-  background: rgba(34, 197, 94, 0.16);
-  border: 1px solid rgba(34, 197, 94, 0.32);
+.actions-row {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.primary {
+  flex: 1;
+  border: 1px solid rgba(56, 189, 248, 0.7);
+  background: rgba(56, 189, 248, 0.2);
+  color: #e0f2fe;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 700;
 }
 
 .summary,
@@ -125,7 +152,8 @@ li {
   cursor: pointer;
 }
 
-.toggle:hover {
+.toggle:hover,
+.primary:hover {
   border-color: rgba(148, 163, 184, 0.5);
 }
 
@@ -137,11 +165,10 @@ li {
 }
 
 .link-btn {
-  background: transparent;
   border: 0;
+  background: transparent;
   color: #93c5fd;
   font-size: 11px;
-  margin-top: 6px;
   cursor: pointer;
   text-decoration: underline;
 }

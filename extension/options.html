@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ghost-Store Guard Settings</title>
+    <title>SafeSpend Settings</title>
     <link rel="stylesheet" href="options.css" />
   </head>
   <body>
     <main class="page">
       <header>
-        <h1>Ghost-Store Guard Settings</h1>
-        <p>Configure backend connection and extension behavior.</p>
+        <h1>SafeSpend Settings</h1>
+        <p>Simple setup for backend connection, sign-in, and cache controls.</p>
       </header>
 
       <section class="card">
@@ -18,13 +18,18 @@
         <label for="apiBaseUrl">API Base URL</label>
         <input id="apiBaseUrl" type="url" placeholder="https://your-backend.example.com" />
 
-        <label for="apiToken">API Token (optional)</label>
-        <input id="apiToken" type="password" placeholder="Optional API token" />
-        <p class="hint">Token is stored locally on this browser profile.</p>
-
         <div class="actions">
           <button id="saveBtn" type="button">Save Settings</button>
           <button id="testBtn" type="button">Test Connection</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Account Connection</h2>
+        <p id="authSummary" class="auth-summary">Checking account status...</p>
+        <div class="actions">
+          <button id="connectBtn" type="button">Connect SafeSpend</button>
+          <button id="signOutBtn" class="secondary" type="button">Sign Out</button>
         </div>
       </section>
 

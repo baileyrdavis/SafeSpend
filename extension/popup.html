@@ -3,15 +3,21 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ghost-Store Guard</title>
+    <title>SafeSpend</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main class="container">
       <header class="header">
-        <h1>Ghost-Store Guard</h1>
-        <p class="subtitle">E-commerce risk summary</p>
+        <h1>SafeSpend</h1>
+        <p class="subtitle">Shopping risk summary</p>
       </header>
+
+      <section id="authState" class="auth-card info">Checking sign-in status...</section>
+      <div class="actions-row">
+        <button id="connectBtn" class="primary hidden" type="button">Connect SafeSpend</button>
+        <button id="openOptions" class="link-btn" type="button">Settings</button>
+      </div>
 
       <section id="status" class="status info">Loading current tab...</section>
 
@@ -40,13 +46,12 @@
       </section>
 
       <section id="details" class="details hidden">
-        <button id="toggleDetails" class="toggle" type="button">Show Detailed Breakdown</button>
+        <button id="loadDetailsBtn" class="toggle" type="button">Load Detailed Breakdown</button>
         <ul id="detailsList" class="hidden"></ul>
       </section>
 
       <footer class="footer">
-        <p>Risk score is informational only.</p>
-        <button id="openOptions" class="link-btn" type="button">Extension Settings</button>
+        <p id="disclaimerText">Risk score is informational only.</p>
       </footer>
     </main>
 

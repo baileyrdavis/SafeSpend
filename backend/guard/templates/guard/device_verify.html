@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SafeSpend Device Verification</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f3f6fb;
+        --card: #ffffff;
+        --edge: #d6dfec;
+        --ink: #12202f;
+        --muted: #56657a;
+        --accent: #0f766e;
+        --ok: #166534;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 16px;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background: radial-gradient(circle at top left, #dbe8f8 0%, #f3f6fb 45%, #eef3f9 100%);
+        color: var(--ink);
+      }
+      .card {
+        width: min(520px, 100%);
+        background: var(--card);
+        border: 1px solid var(--edge);
+        border-radius: 16px;
+        padding: 22px;
+        box-shadow: 0 20px 52px rgba(15, 23, 42, 0.1);
+      }
+      h1 { margin: 0; font-size: 1.65rem; }
+      p { color: var(--muted); margin: 8px 0 0; }
+      .code {
+        display: inline-block;
+        margin-top: 10px;
+        padding: 8px 12px;
+        border: 1px dashed var(--edge);
+        border-radius: 10px;
+        font-family: Consolas, "Courier New", monospace;
+        letter-spacing: 0.08em;
+      }
+      label { display: block; margin-top: 16px; color: var(--muted); font-size: 0.92rem; }
+      input {
+        width: 100%;
+        margin-top: 6px;
+        border: 1px solid var(--edge);
+        border-radius: 10px;
+        padding: 11px;
+        font-size: 1rem;
+        text-transform: uppercase;
+      }
+      button {
+        margin-top: 16px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: white;
+        font-weight: 700;
+        border-radius: 10px;
+        width: 100%;
+        padding: 11px;
+        cursor: pointer;
+      }
+      .errorlist {
+        color: #b91c1c;
+        margin: 10px 0 0;
+        padding-left: 18px;
+      }
+      .success {
+        margin-top: 14px;
+        border: 1px solid rgba(22, 101, 52, 0.24);
+        background: rgba(22, 101, 52, 0.09);
+        color: var(--ok);
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .meta {
+        margin-top: 14px;
+        font-size: 0.86rem;
+      }
+      .meta a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Connect SafeSpend Extension</h1>
+      {% if approved %}
+        <div class="success">
+          Extension approved for code <strong>{{ approved_code }}</strong>.
+          You can return to the extension now.
+        </div>
+      {% else %}
+        <p>Approve this browser to run scans with your SafeSpend account.</p>
+        <form method="post">
+          {% csrf_token %}
+          <label for="{{ form.user_code.id_for_label }}">Verification code</label>
+          {{ form.user_code }}
+          {{ form.user_code.errors }}
+          <button type="submit">Approve Extension</button>
+        </form>
+      {% endif %}
+      <p class="meta">
+        Signed in as <strong>{{ request.user.get_username }}</strong>.
+        <a href="/auth/logout">Sign out</a>
+      </p>
+    </main>
+  </body>
+</html>

@@ -21,19 +21,53 @@ function formatConfidence(value) {
   return `${Math.round(numeric * 100)}%`;
 }
 
-function renderResult(result, domain) {
+function setStatus(message, type = 'info') {
   const status = byId('status');
-  const summary = byId('summary');
-  const reasons = byId('reasons');
-  const details = byId('details');
+  status.className = `status ${type}`;
+  status.textContent = message;
+}
 
-  status.className = 'status ok';
+function renderAuthState(auth) {
+  const panel = byId('authState');
+  const connectBtn = byId('connectBtn');
+
+  if (!auth) {
+    panel.className = 'auth-card info';
+    panel.textContent = 'Checking sign-in status...';
+    connectBtn.classList.add('hidden');
+    return;
+  }
+
+  if (auth.authenticated) {
+    panel.className = 'auth-card ok';
+    panel.textContent = 'Connected. Scans are active.';
+    connectBtn.classList.add('hidden');
+    return;
+  }
+
+  if (auth.in_progress) {
+    panel.className = 'auth-card info';
+    panel.textContent = auth.user_code
+      ? `Finish sign-in with code ${auth.user_code}.`
+      : 'Finish sign-in to activate scans.';
+    connectBtn.textContent = 'Resume Sign In';
+    connectBtn.classList.remove('hidden');
+    return;
+  }
+
+  panel.className = 'auth-card warn';
+  panel.textContent = auth.auth_error || 'Sign in once to protect scans and data access.';
+  connectBtn.textContent = 'Connect SafeSpend';
+  connectBtn.classList.remove('hidden');
+}
+
+function renderSummary(result, domain) {
   const suffix = result?.stale_cache ? ' (stale cache)' : result?.from_cache ? ' (cached)' : '';
-  status.textContent = `Latest scan loaded for ${domain}${suffix}`;
+  setStatus(`Latest scan loaded for ${domain}${suffix}`, 'ok');
 
-  summary.classList.remove('hidden');
-  reasons.classList.remove('hidden');
-  details.classList.remove('hidden');
+  byId('summary').classList.remove('hidden');
+  byId('reasons').classList.remove('hidden');
+  byId('details').classList.remove('hidden');
 
   byId('riskScore').textContent = String(result.risk_score ?? '-');
 
@@ -43,12 +77,12 @@ function renderResult(result, domain) {
 
   byId('scoreConfidence').textContent = formatConfidence(result.score_confidence);
   byId('lastScannedAt').textContent = formatDate(result.last_scanned_at);
+  byId('disclaimerText').textContent = result.disclaimer || 'Risk score is informational only.';
 
   const reasonsList = byId('reasonsList');
   reasonsList.innerHTML = '';
-
   const topReasons = Array.isArray(result.top_reasons) ? result.top_reasons : [];
-  if (topReasons.length === 0) {
+  if (!topReasons.length) {
     const li = document.createElement('li');
     li.textContent = 'No high-risk triggers in top reasons.';
     reasonsList.appendChild(li);
@@ -59,35 +93,89 @@ function renderResult(result, domain) {
       reasonsList.appendChild(li);
     });
   }
+}
 
+function renderDetails(checks) {
   const detailsList = byId('detailsList');
   detailsList.innerHTML = '';
-  const checks = Array.isArray(result.checks) ? result.checks : [];
-  checks.forEach((check) => {
+
+  if (!checks.length) {
     const li = document.createElement('li');
-    const sign = check.risk_points >= 0 ? '+' : '';
-    li.textContent = `${check.check_name} | ${sign}${check.risk_points} | ${check.severity} | ${check.explanation}`;
+    li.textContent = 'No detailed checks available for this scan.';
     detailsList.appendChild(li);
+  } else {
+    checks.forEach((check) => {
+      const li = document.createElement('li');
+      const sign = Number(check.risk_points) >= 0 ? '+' : '';
+      li.textContent = `${check.check_name} | ${sign}${check.risk_points} | ${check.severity} | ${check.explanation}`;
+      detailsList.appendChild(li);
+    });
+  }
+
+  detailsList.classList.remove('hidden');
+}
+
+function sendMessage(payload) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(payload, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve({ ok: false, error: chrome.runtime.lastError.message || 'Service worker unavailable.' });
+        return;
+      }
+      resolve(response || { ok: false, error: 'No response from extension worker.' });
+    });
   });
 }
 
-function renderError(message) {
-  const status = byId('status');
-  status.className = 'status error';
-  status.textContent = message;
+async function refreshPopupData() {
+  const response = await sendMessage({ type: 'GET_RESULT_FOR_ACTIVE_TAB' });
+  renderAuthState(response?.auth || null);
+
+  if (!response?.ok) {
+    if (response?.auth_required) {
+      setStatus('Sign in required before scans can run.', 'error');
+      return;
+    }
+    setStatus(response?.error || 'No scan data for this tab yet.', 'info');
+    return;
+  }
+
+  renderSummary(response.result, response.domain);
+}
+
+async function beginAuthFlow() {
+  const response = await sendMessage({ type: 'BEGIN_AUTH_FLOW' });
+  if (!response?.ok) {
+    setStatus(response?.error || 'Could not start sign-in.', 'error');
+  } else {
+    setStatus('Sign-in page opened. Complete login to continue.', 'info');
+  }
+  renderAuthState(response?.auth || null);
+}
+
+async function loadDetailedBreakdown() {
+  const button = byId('loadDetailsBtn');
+  button.disabled = true;
+  button.textContent = 'Loading Details...';
+
+  const response = await sendMessage({ type: 'GET_DETAILED_RESULT_FOR_ACTIVE_TAB' });
+  if (!response?.ok) {
+    renderAuthState(response?.auth || null);
+    setStatus(response?.error || 'Could not load detailed checks.', 'error');
+    button.disabled = false;
+    button.textContent = 'Load Detailed Breakdown';
+    return;
+  }
+
+  renderDetails(Array.isArray(response.checks) ? response.checks : []);
+  button.disabled = false;
+  button.textContent = 'Reload Detailed Breakdown';
 }
 
 function setupInteractions() {
-  const toggleBtn = byId('toggleDetails');
-  const detailsList = byId('detailsList');
-  const optionsBtn = byId('openOptions');
-
-  toggleBtn.addEventListener('click', () => {
-    const isHidden = detailsList.classList.toggle('hidden');
-    toggleBtn.textContent = isHidden ? 'Show Detailed Breakdown' : 'Hide Detailed Breakdown';
-  });
-
-  optionsBtn.addEventListener('click', () => {
+  byId('connectBtn').addEventListener('click', beginAuthFlow);
+  byId('loadDetailsBtn').addEventListener('click', loadDetailedBreakdown);
+  byId('openOptions').addEventListener('click', () => {
     if (chrome.runtime.openOptionsPage) {
       chrome.runtime.openOptionsPage();
     }
@@ -95,17 +183,7 @@ function setupInteractions() {
 }
 
 setupInteractions();
-
-chrome.runtime.sendMessage({ type: 'GET_RESULT_FOR_ACTIVE_TAB' }, (response) => {
-  if (chrome.runtime.lastError) {
-    renderError('Unable to connect to extension worker. Reload extension.');
-    return;
-  }
-
-  if (!response?.ok) {
-    renderError(response?.error || 'No scan data for this tab yet.');
-    return;
-  }
-
-  renderResult(response.result, response.domain);
-});
+void refreshPopupData();
+setInterval(() => {
+  void refreshPopupData();
+}, 3500);

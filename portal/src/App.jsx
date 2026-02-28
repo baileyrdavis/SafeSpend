@@ -163,7 +163,7 @@ export default function App() {
   return (
     <div className="page">
       <header className="hero">
-        <h1>Ghost-Store Guard Portal</h1>
+        <h1>SafeSpend Portal</h1>
         <p>Domain lookup, manual scan control, and indexed risk monitoring.</p>
       </header>
 

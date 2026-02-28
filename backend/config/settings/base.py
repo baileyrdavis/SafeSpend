@@ -9,11 +9,19 @@ env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, ['localhost', '127.0.0.1']),
     CORS_ALLOW_ALL_ORIGINS=(bool, False),
+    API_REQUIRE_AUTH=(bool, False),
     API_THROTTLE_SCAN=(str, '120/minute'),
     API_THROTTLE_TELEMETRY=(str, '240/minute'),
     API_THROTTLE_LOOKUP=(str, '180/minute'),
     API_THROTTLE_RESCAN=(str, '30/minute'),
+    API_THROTTLE_AUTH_START=(str, '20/minute'),
+    API_THROTTLE_AUTH_POLL=(str, '60/minute'),
+    API_THROTTLE_AUTH_REFRESH=(str, '30/minute'),
     API_THROTTLE_DEFAULT=(str, '180/minute'),
+    DEVICE_AUTH_EXPIRES_SECONDS=(int, 900),
+    DEVICE_AUTH_INTERVAL_SECONDS=(int, 5),
+    API_ACCESS_TOKEN_EXPIRES_SECONDS=(int, 900),
+    API_REFRESH_TOKEN_EXPIRES_SECONDS=(int, 2592000),
 )
 
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
@@ -23,6 +31,11 @@ DEBUG = env('DEBUG')
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS')
 APP_VERSION = env('APP_VERSION', default='0.1.0')
 API_AUTH_TOKEN = env('API_AUTH_TOKEN', default='')
+API_REQUIRE_AUTH = env('API_REQUIRE_AUTH')
+DEVICE_AUTH_EXPIRES_SECONDS = env.int('DEVICE_AUTH_EXPIRES_SECONDS')
+DEVICE_AUTH_INTERVAL_SECONDS = env.int('DEVICE_AUTH_INTERVAL_SECONDS')
+API_ACCESS_TOKEN_EXPIRES_SECONDS = env.int('API_ACCESS_TOKEN_EXPIRES_SECONDS')
+API_REFRESH_TOKEN_EXPIRES_SECONDS = env.int('API_REFRESH_TOKEN_EXPIRES_SECONDS')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -117,6 +130,9 @@ REST_FRAMEWORK = {
         'telemetry': env('API_THROTTLE_TELEMETRY'),
         'lookup': env('API_THROTTLE_LOOKUP'),
         'rescan': env('API_THROTTLE_RESCAN'),
+        'auth_start': env('API_THROTTLE_AUTH_START'),
+        'auth_poll': env('API_THROTTLE_AUTH_POLL'),
+        'auth_refresh': env('API_THROTTLE_AUTH_REFRESH'),
         'default': env('API_THROTTLE_DEFAULT'),
     },
 }
@@ -137,6 +153,8 @@ SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
+LOGIN_URL = '/auth/login'
+LOGIN_REDIRECT_URL = '/auth/device/verify'
 
 if env('R2_BUCKET_NAME', default=''):
     AWS_ACCESS_KEY_ID = env('R2_ACCESS_KEY_ID', default='')

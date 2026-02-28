@@ -224,6 +224,16 @@ async function runExtraction() {
   }
 }
 
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === 'RUN_EXTRACTION') {
+    runExtraction()
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  return false;
+});
+
 (async () => {
   await runExtraction();
   // Many storefronts hydrate late; run one delayed pass.

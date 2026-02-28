@@ -19,7 +19,7 @@ export function ApiSettingsCard({
           />
         </label>
         <label>
-          API Token (optional)
+          Static API Token (optional)
           <input
             type="password"
             value={apiToken}

@@ -39,41 +39,39 @@ def should_rescan(site: Site, latest_scan: Scan | None, current_hash: str | None
     return False
 
 
-def build_scan_response(scan: Scan) -> dict[str, Any]:
+def _serialize_check_result(check: CheckResult, include_evidence: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        'check_name': check.check_name,
+        'risk_points': check.risk_points,
+        'confidence': check.confidence,
+        'severity': check.severity,
+        'explanation': check.explanation,
+    }
+    if include_evidence:
+        payload['evidence'] = check.evidence
+    return payload
+
+
+def build_scan_response(scan: Scan, include_checks: bool = True, include_evidence: bool = True) -> dict[str, Any]:
     check_results = list(scan.check_results.all().order_by('-risk_points'))
     top_reasons = [
-        {
-            'check_name': item.check_name,
-            'risk_points': item.risk_points,
-            'severity': item.severity,
-            'explanation': item.explanation,
-            'evidence': item.evidence,
-        }
+        _serialize_check_result(item, include_evidence=include_evidence)
         for item in check_results
         if item.risk_points > 0
     ][:3]
 
-    full_breakdown = [
-        {
-            'check_name': item.check_name,
-            'risk_points': item.risk_points,
-            'confidence': item.confidence,
-            'severity': item.severity,
-            'explanation': item.explanation,
-            'evidence': item.evidence,
-        }
-        for item in check_results
-    ]
+    full_breakdown = [_serialize_check_result(item, include_evidence=include_evidence) for item in check_results]
 
-    return {
+    payload = {
         'risk_score': scan.risk_score,
         'trust_level': scan.site.trust_level,
         'top_reasons': top_reasons,
-        'checks': full_breakdown,
         'score_confidence': scan.score_confidence,
         'last_scanned_at': scan.scanned_at,
         'disclaimer': DISCLAIMER_TEXT,
     }
+    payload['checks'] = full_breakdown if include_checks else []
+    return payload
 
 
 def _hash_install_identifier(user_install_hash: str) -> str:

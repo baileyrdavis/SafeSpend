@@ -1,13 +1,11 @@
 # Testing Guide
 
-## 1) Local Environment Prerequisites
+## 1) Prerequisites
 
 - Docker Desktop running
-- Python 3.12+ (if running backend outside Docker)
-- Node 20+ (if running portal outside Docker)
-- Chrome/Chromium (for extension testing)
+- Chrome/Chromium for extension tests
 
-## 2) Fast End-to-End Test via Docker
+## 2) Local End-to-End (Docker)
 
 From repository root:
 
@@ -15,21 +13,25 @@ From repository root:
 docker compose up --build
 ```
 
-Expected services:
+Services:
 
 - Backend API: `http://localhost:8000`
 - Portal: `http://localhost:5173`
 - Postgres: `localhost:5432`
 
-Quick health check:
+Health check:
 
 ```bash
 curl http://localhost:8000/api/health
 ```
 
-You should get `{"status":"ok", ...}`.
+## 3) Create Admin User (for auth flow test)
 
-## 3) Backend Test Suite
+```bash
+docker compose exec backend python manage.py createsuperuser
+```
+
+## 4) Backend Test Suite
 
 From `backend/`:
 
@@ -38,7 +40,7 @@ DJANGO_SETTINGS_MODULE=config.settings.test python manage.py check
 DJANGO_SETTINGS_MODULE=config.settings.test python manage.py test
 ```
 
-## 4) Portal Build Verification
+## 5) Portal Build Verification
 
 From `portal/`:
 
@@ -47,31 +49,43 @@ npm install
 npm run build
 ```
 
-## 5) Extension Test Flow
+## 6) Extension Test Flow
 
 1. Open `chrome://extensions`
 2. Enable Developer Mode
 3. Load unpacked extension from `extension/`
-4. Open extension settings and set:
+4. Open extension settings:
    - API Base URL: `http://localhost:8000`
-   - API Token: blank unless configured on backend
-5. Visit an e-commerce site.
-6. Open popup and verify:
-   - risk score visible
-   - trust level color
-   - top reasons + detailed checks
+5. Visit an e-commerce site
+6. Open popup and click `Connect SafeSpend`
+7. Complete sign-in in opened tab (`/auth/device/verify`)
+8. Return to popup and verify:
+   - risk score appears
+   - trust level color appears
+   - top reasons list appears
+   - detailed breakdown loads on demand
 
-## 6) API Manual Checks
+## 7) API Manual Checks
 
-### Trigger scan
+### Start device auth
+
+```bash
+curl -X POST http://localhost:8000/api/auth/device/start \
+  -H "Content-Type: application/json" \
+  -d '{"install_hash":"install-hash-for-manual-test"}'
+```
+
+### Trigger scan (authenticated)
 
 ```bash
 curl -X POST http://localhost:8000/api/scan \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <access-token>" \
   -d '{
     "domain": "example.com",
     "extension_version": "manual-test",
     "triggered_by": "MANUAL_LOOKUP",
+    "include_checks": false,
     "extracted_signals": {"is_ecommerce": true}
   }'
 ```
@@ -79,15 +93,8 @@ curl -X POST http://localhost:8000/api/scan \
 ### Lookup indexed site
 
 ```bash
-curl http://localhost:8000/api/site/example.com
-```
-
-### Force indexed rescan
-
-```bash
-curl -X POST http://localhost:8000/api/site/example.com/rescan \
-  -H "Content-Type: application/json" \
-  -d '{"extension_version": "manual-rescan"}'
+curl http://localhost:8000/api/site/example.com \
+  -H "Authorization: Bearer <access-token>"
 ```
 
 ### Seen telemetry
@@ -95,17 +102,6 @@ curl -X POST http://localhost:8000/api/site/example.com/rescan \
 ```bash
 curl -X POST http://localhost:8000/api/telemetry/seen \
   -H "Content-Type: application/json" \
-  -d '{"domain": "example.com", "user_install_hash": "install-a"}'
-```
-
-## 7) Token-Protected Mode Test
-
-If `API_AUTH_TOKEN` is set in backend env, all non-health endpoints require:
-
-- `X-API-Token: <token>` header
-
-Example:
-
-```bash
-curl http://localhost:8000/api/sites -H "X-API-Token: your-token"
+  -H "Authorization: Bearer <access-token>" \
+  -d '{"domain":"example.com","user_install_hash":"install-a"}'
 ```

@@ -1,5 +1,6 @@
 import uuid
 
+from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
@@ -31,6 +32,14 @@ class SnapshotType(models.TextChoices):
     HTML_HASH = 'HTML_HASH', 'HTML Hash'
     SCREENSHOT = 'SCREENSHOT', 'Screenshot'
     POLICY_EXTRACT = 'POLICY_EXTRACT', 'Policy Extract'
+
+
+class DeviceAuthStatus(models.TextChoices):
+    PENDING = 'PENDING', 'Pending'
+    APPROVED = 'APPROVED', 'Approved'
+    CONSUMED = 'CONSUMED', 'Consumed'
+    EXPIRED = 'EXPIRED', 'Expired'
+    DENIED = 'DENIED', 'Denied'
 
 
 class Site(models.Model):
@@ -129,3 +138,93 @@ class SeenSite(models.Model):
 
     def __str__(self) -> str:
         return f'{self.domain} ({self.user_install_hash})'
+
+
+class DeviceAuthSession(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    device_code_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    user_code = models.CharField(max_length=16, unique=True, db_index=True)
+    install_hash = models.CharField(max_length=128, db_index=True)
+    status = models.CharField(max_length=16, choices=DeviceAuthStatus.choices, default=DeviceAuthStatus.PENDING)
+    interval_seconds = models.PositiveIntegerField(default=5)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='approved_device_auth_sessions',
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['status', 'expires_at']),
+            models.Index(fields=['install_hash', 'created_at']),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.user_code} ({self.status})'
+
+
+class ApiAccessToken(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='api_access_tokens')
+    install_hash = models.CharField(max_length=128, db_index=True)
+    issued_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    revoked_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    created_from_device = models.ForeignKey(
+        DeviceAuthSession,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='issued_access_tokens',
+    )
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'install_hash']),
+            models.Index(fields=['expires_at', 'revoked_at']),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.user_id}:{self.install_hash[:8]}'
+
+
+class ApiRefreshToken(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='api_refresh_tokens')
+    install_hash = models.CharField(max_length=128, db_index=True)
+    issued_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    revoked_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    replaced_by = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='rotated_from',
+    )
+    access_token = models.ForeignKey(ApiAccessToken, on_delete=models.CASCADE, related_name='refresh_tokens')
+    created_from_device = models.ForeignKey(
+        DeviceAuthSession,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='issued_refresh_tokens',
+    )
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'install_hash']),
+            models.Index(fields=['expires_at', 'revoked_at']),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.user_id}:{self.install_hash[:8]}'

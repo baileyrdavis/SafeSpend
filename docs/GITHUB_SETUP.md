@@ -7,7 +7,7 @@ From project root:
 ```bash
 git init
 git add .
-git commit -m "Initial Ghost-Store Guard MVP"
+git commit -m "Initial SafeSpend MVP"
 git branch -M main
 git remote add origin https://github.com/<your-user>/<your-repo>.git
 git push -u origin main
