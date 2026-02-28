@@ -87,7 +87,7 @@ def _extract_same_site_links(html: str, base_url: str, root_domain: str) -> list
         try:
             absolute = urljoin(base_url, href)
             parsed = urlparse(absolute)
-        except Exception:
+        except (TypeError, ValueError):
             continue
         if parsed.scheme not in {'http', 'https'}:
             continue
