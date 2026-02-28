@@ -112,7 +112,16 @@ class FeedbackSubmitAPIView(APIView):
         email_subject = f'[SafeSpend] {category_label}'
         email_body = '\n'.join(body_lines)
 
-        admin_emails = [email for _, email in getattr(settings, 'ADMINS', []) if email]
+        admins_setting = getattr(settings, 'ADMINS', []) or []
+        admin_emails: list[str] = []
+        for entry in admins_setting:
+            email_value = ''
+            if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                email_value = str(entry[1] or '').strip()
+            elif isinstance(entry, str):
+                email_value = str(entry or '').strip()
+            if email_value and '@' in email_value:
+                admin_emails.append(email_value)
         feedback_recipient = str(getattr(settings, 'GUARD_FEEDBACK_EMAIL', '') or '').strip()
         if feedback_recipient:
             recipients = [feedback_recipient]

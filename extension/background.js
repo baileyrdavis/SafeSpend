@@ -1088,13 +1088,43 @@ async function submitFeedbackToBackend(payload = {}) {
     extension_version: extensionVersion,
     source: 'extension_options',
   };
-  const response = await fetch(`${config.apiBaseUrl}/api/feedback/submit`, {
-    method: 'POST',
-    headers: buildHeaders('', true),
-    body: JSON.stringify(body)
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    try {
+      controller.abort();
+    } catch (_error) {
+      // ignore
+    }
+  }, 12000);
+  let response;
+  try {
+    response = await fetch(`${config.apiBaseUrl}/api/feedback/submit`, {
+      method: 'POST',
+      headers: buildHeaders('', true),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Feedback request timed out. Please try again.');
+    }
+    throw new Error(`Could not reach ${config.apiBaseUrl}. Check API URL/network and try again.`);
+  } finally {
+    clearTimeout(timeoutId);
+  }
   if (!response.ok) {
-    throw new Error(`Could not submit feedback (${response.status}).`);
+    let detail = '';
+    try {
+      const payload = await response.json();
+      detail = String(payload?.detail || payload?.error || '').trim();
+    } catch (_error) {
+      // ignore
+    }
+    throw new Error(
+      detail
+        ? `Could not submit feedback (${response.status}): ${detail}`
+        : `Could not submit feedback (${response.status}).`
+    );
   }
   return response.json().catch(() => ({ ok: true }));
 }
