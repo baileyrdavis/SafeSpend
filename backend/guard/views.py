@@ -2,7 +2,7 @@ from urllib.parse import urlencode
 import logging
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import get_connection, send_mail
 from django.db import transaction
 from django.http import Http404
 from django.urls import reverse
@@ -133,15 +133,20 @@ class FeedbackSubmitAPIView(APIView):
         delivered = False
         if recipients:
             try:
+                connection = get_connection(
+                    fail_silently=False,
+                    timeout=int(getattr(settings, 'EMAIL_TIMEOUT', 8) or 8),
+                )
                 send_mail(
                     subject=email_subject,
                     message=email_body,
                     from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None),
                     recipient_list=recipients,
                     fail_silently=False,
+                    connection=connection,
                 )
                 delivered = True
-            except Exception:
+            except (Exception, SystemExit):
                 logger.exception('Feedback submission email delivery failed.')
 
         if not delivered:
