@@ -151,7 +151,7 @@ class DeviceAuthFlowTests(TestCase):
         token_pair = issue_token_pair(user=self.user, install_hash=self.install_hash)
         response = self.api_client.post(
             '/api/auth/account/delete',
-            {},
+            {'confirm_email': self.user.email},
             format='json',
             HTTP_AUTHORIZATION=f'Bearer {token_pair.access_token}',
         )
@@ -159,3 +159,14 @@ class DeviceAuthFlowTests(TestCase):
         self.assertTrue(response.data['ok'])
         self.assertFalse(get_user_model().objects.filter(id=self.user.id).exists())
         self.assertEqual(SeenSite.objects.count(), 0)
+
+    def test_delete_account_requires_matching_email_confirmation(self):
+        token_pair = issue_token_pair(user=self.user, install_hash=self.install_hash)
+        response = self.api_client.post(
+            '/api/auth/account/delete',
+            {'confirm_email': 'wrong@example.com'},
+            format='json',
+            HTTP_AUTHORIZATION=f'Bearer {token_pair.access_token}',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Email confirmation did not match', response.data['detail'])

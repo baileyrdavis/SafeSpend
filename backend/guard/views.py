@@ -222,6 +222,23 @@ class AccountDeleteAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        confirm_email = str((request.data or {}).get('confirm_email', '')).strip().lower()
+        if not confirm_email:
+            return Response(
+                {
+                    'detail': 'confirm_email is required to delete account.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if confirm_email != str(user.email or '').strip().lower():
+            return Response(
+                {
+                    'detail': 'Email confirmation did not match this account.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if user.is_superuser:
             return Response(
                 {
