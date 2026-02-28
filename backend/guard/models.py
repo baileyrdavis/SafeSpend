@@ -28,6 +28,12 @@ class Severity(models.TextChoices):
     HIGH = 'HIGH', 'High'
 
 
+class BrandDomainType(models.TextChoices):
+    CANONICAL = 'CANONICAL', 'Canonical'
+    REGIONAL = 'REGIONAL', 'Regional Official'
+    PARTNER = 'PARTNER', 'Partner Official'
+
+
 class SnapshotType(models.TextChoices):
     HTML_HASH = 'HTML_HASH', 'HTML Hash'
     SCREENSHOT = 'SCREENSHOT', 'Screenshot'
@@ -40,6 +46,40 @@ class DeviceAuthStatus(models.TextChoices):
     CONSUMED = 'CONSUMED', 'Consumed'
     EXPIRED = 'EXPIRED', 'Expired'
     DENIED = 'DENIED', 'Denied'
+
+
+class Brand(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=255, unique=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class BrandDomain(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    brand = models.ForeignKey(Brand, on_delete=models.CASCADE, related_name='domains')
+    domain = models.CharField(max_length=255, unique=True, db_index=True)
+    domain_type = models.CharField(max_length=16, choices=BrandDomainType.choices, default=BrandDomainType.CANONICAL)
+    is_official = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+    source = models.CharField(max_length=32, default='seed')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['domain']
+        indexes = [
+            models.Index(fields=['domain', 'is_active']),
+            models.Index(fields=['brand', 'is_active']),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.domain} ({self.brand.name})'
 
 
 class Site(models.Model):

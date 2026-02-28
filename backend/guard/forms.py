@@ -78,3 +78,47 @@ class ManualScanForm(forms.Form):
         initial=True,
         label='Mark as e-commerce',
     )
+
+
+class ExtensionRegistrationForm(forms.Form):
+    email = forms.EmailField(
+        label='Email',
+        widget=forms.EmailInput(
+            attrs={
+                'autocomplete': 'email',
+                'placeholder': 'you@example.com',
+            },
+        ),
+    )
+    password1 = forms.CharField(
+        label='Password',
+        min_length=10,
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+    )
+    password2 = forms.CharField(
+        label='Confirm password',
+        min_length=10,
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+    )
+
+    def clean_email(self):
+        email = (self.cleaned_data.get('email') or '').strip().lower()
+        user_model = get_user_model()
+        if user_model._default_manager.filter(email__iexact=email).exists():
+            raise forms.ValidationError('An account with this email already exists.')
+        return email
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('password1') and cleaned.get('password2') and cleaned['password1'] != cleaned['password2']:
+            self.add_error('password2', 'Passwords do not match.')
+        return cleaned
+
+    def save(self):
+        user_model = get_user_model()
+        email = self.cleaned_data['email']
+        return user_model._default_manager.create_user(
+            username=email,
+            email=email,
+            password=self.cleaned_data['password1'],
+        )

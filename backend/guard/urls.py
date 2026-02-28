@@ -8,6 +8,7 @@ urlpatterns = [
     path('auth/token/refresh', views.TokenRefreshAPIView.as_view(), name='auth-token-refresh-api'),
     path('auth/session', views.AuthSessionAPIView.as_view(), name='auth-session-api'),
     path('auth/logout', views.LogoutAPIView.as_view(), name='auth-logout-api'),
+    path('auth/account/delete', views.AccountDeleteAPIView.as_view(), name='auth-account-delete-api'),
     path('scan', views.ScanAPIView.as_view(), name='scan-api'),
     path('site/<str:domain>', views.SiteDetailAPIView.as_view(), name='site-detail-api'),
     path('site/<str:domain>/rescan', views.SiteRescanAPIView.as_view(), name='site-rescan-api'),

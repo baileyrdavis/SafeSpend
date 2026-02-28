@@ -15,6 +15,7 @@ from guard.auth import ApiTokenPermission
 from guard.auth_service import (
     AuthServiceError,
     create_device_auth_session,
+    delete_user_account,
     exchange_device_code_for_tokens,
     refresh_access_token,
     revoke_install_tokens,
@@ -51,7 +52,7 @@ def _token_response_payload(token_pair) -> dict:
     access_expires_in = max(int((token_pair.access_token_expires_at - now).total_seconds()), 0)
     refresh_expires_in = max(int((token_pair.refresh_token_expires_at - now).total_seconds()), 0)
     return {
-        'token_type': 'Bearer',
+        'token_type': 'Bearer',  # nosec B105
         'access_token': token_pair.access_token,
         'access_token_expires_in': access_expires_in,
         'access_token_expires_at': token_pair.access_token_expires_at,
@@ -203,6 +204,34 @@ class LogoutAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class AccountDeleteAPIView(APIView):
+    throttle_scope = 'auth_refresh'
+    authentication_classes = []
+    permission_classes = [ApiTokenPermission]
+
+    def post(self, request):
+        user = getattr(request, 'guard_user', None)
+        auth_mode = getattr(request, 'guard_auth_mode', '')
+        if user is None or auth_mode != 'access-token':
+            return Response(
+                {
+                    'detail': 'Account deletion requires an authenticated user session.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if user.is_superuser:
+            return Response(
+                {
+                    'detail': 'Superuser accounts cannot be deleted via extension API.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        delete_user_account(user_id=user.id)
+        return Response({'ok': True}, status=status.HTTP_200_OK)
 
 
 class ScanAPIView(APIView):

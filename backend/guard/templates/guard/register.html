@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SafeSpend Sign In</title>
+    <title>SafeSpend Create Account</title>
     <style>
       :root {
         color-scheme: light;
@@ -72,8 +72,8 @@
   </head>
   <body>
     <main class="card">
-      <h1>SafeSpend Sign In</h1>
-      <p>Sign in to securely connect your browser extension.</p>
+      <h1>Create SafeSpend Account</h1>
+      <p>Create your account to unlock full backend checks and multi-device history.</p>
 
       <form method="post">
         {% csrf_token %}
@@ -83,17 +83,18 @@
         {{ form.email }}
         {{ form.email.errors }}
 
-        <label for="{{ form.password.id_for_label }}">Password</label>
-        {{ form.password }}
-        {{ form.password.errors }}
+        <label for="{{ form.password1.id_for_label }}">Password</label>
+        {{ form.password1 }}
+        {{ form.password1.errors }}
 
-        {% if next %}
-          <input type="hidden" name="next" value="{{ next }}" />
-        {% endif %}
-        <button type="submit">Continue</button>
+        <label for="{{ form.password2.id_for_label }}">Confirm password</label>
+        {{ form.password2 }}
+        {{ form.password2.errors }}
+
+        <button type="submit">Create Account</button>
       </form>
       <p class="meta">
-        New to SafeSpend? <a href="/auth/register">Create account</a>
+        Already have an account? <a href="/auth/login">Sign in</a>
       </p>
     </main>
   </body>

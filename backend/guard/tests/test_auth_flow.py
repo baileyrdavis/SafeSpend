@@ -1,20 +1,25 @@
+import secrets
+
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 from rest_framework.test import APIClient
 
 from guard.auth_service import issue_token_pair
+from guard.models import SeenSite
+from guard.services import record_seen_domain
 
 
-@override_settings(API_REQUIRE_AUTH=True, API_AUTH_TOKEN='')
+@override_settings(API_REQUIRE_AUTH=True, API_AUTH_TOKEN='')  # nosec B106
 class DeviceAuthFlowTests(TestCase):
     def setUp(self):
         self.api_client = APIClient()
         self.web_client = Client()
         self.install_hash = '7f8bc45ad2114eca9fc1b165ef909c11'
+        self.user_password = secrets.token_urlsafe(18)
         self.user = get_user_model().objects.create_user(
             username='consumer@example.com',
             email='consumer@example.com',
-            password='strong-password',
+            password=self.user_password,
         )
 
     def test_device_authorization_flow_can_issue_access_tokens(self):
@@ -69,7 +74,7 @@ class DeviceAuthFlowTests(TestCase):
             '/auth/login',
             {
                 'email': self.user.email,
-                'password': 'strong-password',
+                'password': self.user_password,
             },
         )
         self.assertEqual(response.status_code, 302)
@@ -125,3 +130,32 @@ class DeviceAuthFlowTests(TestCase):
             HTTP_AUTHORIZATION=f'Bearer {token_pair.access_token}',
         )
         self.assertEqual(denied_response.status_code, 403)
+
+    def test_device_verify_get_auto_approves_from_query_code(self):
+        start_response = self.api_client.post(
+            '/api/auth/device/start',
+            {'install_hash': self.install_hash},
+            format='json',
+        )
+        self.assertEqual(start_response.status_code, 200)
+
+        self.web_client.force_login(self.user)
+        response = self.web_client.get(f"/auth/device/verify?user_code={start_response.data['user_code']}")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Extension approved')
+
+    def test_delete_account_removes_user_and_install_seen_data(self):
+        record_seen_domain(domain='delete-me.example', user_install_hash=self.install_hash)
+        self.assertEqual(SeenSite.objects.count(), 1)
+
+        token_pair = issue_token_pair(user=self.user, install_hash=self.install_hash)
+        response = self.api_client.post(
+            '/api/auth/account/delete',
+            {},
+            format='json',
+            HTTP_AUTHORIZATION=f'Bearer {token_pair.access_token}',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['ok'])
+        self.assertFalse(get_user_model().objects.filter(id=self.user.id).exists())
+        self.assertEqual(SeenSite.objects.count(), 0)

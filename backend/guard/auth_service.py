@@ -7,10 +7,11 @@ from http import HTTPStatus
 import secrets
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from guard.models import ApiAccessToken, ApiRefreshToken, DeviceAuthSession, DeviceAuthStatus
+from guard.models import ApiAccessToken, ApiRefreshToken, DeviceAuthSession, DeviceAuthStatus, SeenSite
 
 USER_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
@@ -291,3 +292,23 @@ def revoke_install_tokens(*, user_id: int, install_hash: str) -> tuple[int, int]
         revoked_at__isnull=True,
     ).update(revoked_at=now)
     return access_revoked, refresh_revoked
+
+
+@transaction.atomic
+def delete_user_account(*, user_id: int) -> None:
+    install_hashes = set(
+        ApiAccessToken.objects.filter(user_id=user_id).values_list('install_hash', flat=True),
+    )
+    install_hashes.update(
+        ApiRefreshToken.objects.filter(user_id=user_id).values_list('install_hash', flat=True),
+    )
+    install_hashes.update(
+        DeviceAuthSession.objects.filter(approved_by_id=user_id).values_list('install_hash', flat=True),
+    )
+
+    if install_hashes:
+        SeenSite.objects.filter(user_install_hash__in=install_hashes).delete()
+
+    DeviceAuthSession.objects.filter(approved_by_id=user_id).delete()
+    user_model = get_user_model()
+    user_model._default_manager.filter(id=user_id).delete()

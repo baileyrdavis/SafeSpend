@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import secrets
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
@@ -141,13 +142,14 @@ class ScanApiTests(TestCase):
         after = Site.objects.get(domain='example.com').scans.count()
         self.assertEqual(after, before + 1)
 
-    @override_settings(API_AUTH_TOKEN='top-secret-token')
     def test_api_token_required_when_configured(self):
-        unauthorized = self.client.get('/api/sites')
-        self.assertEqual(unauthorized.status_code, 403)
+        api_token = secrets.token_urlsafe(24)
+        with override_settings(API_AUTH_TOKEN=api_token):
+            unauthorized = self.client.get('/api/sites')
+            self.assertEqual(unauthorized.status_code, 403)
 
-        authorized = self.client.get('/api/sites', HTTP_X_API_TOKEN='top-secret-token')
-        self.assertEqual(authorized.status_code, 200)
+            authorized = self.client.get('/api/sites', HTTP_X_API_TOKEN=api_token)
+            self.assertEqual(authorized.status_code, 200)
 
     def test_site_list_filters(self):
         Site.objects.create(domain='one.example.com', overall_risk_score=20, trust_level='HIGH')
@@ -182,3 +184,63 @@ class ScanApiTests(TestCase):
             format='json',
         )
         self.assertEqual(response.status_code, 400)
+
+    @patch('guard.risk_engine.external.has_wayback_history', return_value=True)
+    @patch('guard.risk_engine.external.get_https_info', return_value={'has_https': True, 'self_signed': False, 'error': None})
+    @patch('guard.risk_engine.external.get_nameservers', return_value=['ns1.example.net', 'ns2.example.net'])
+    @patch(
+        'guard.risk_engine.external.get_whois_data',
+        return_value={
+            'creation_date': datetime.now(timezone.utc) - timedelta(days=900),
+            'updated_date': datetime.now(timezone.utc) - timedelta(days=120),
+            'registrar': 'Example Registrar',
+        },
+    )
+    def test_brand_check_rewards_official_domain(self, *_mocks):
+        payload = self.scan_payload('brand-official-hash')
+        payload['domain'] = 'target.com.au'
+        payload['include_checks'] = True
+        payload['extracted_signals']['contact'] = {
+            'email': True,
+            'phone': False,
+            'contact_page': True,
+            'address': False,
+        }
+        payload['extracted_signals']['currency'] = 'AUD'
+        payload['extracted_signals']['shipping_destinations'] = ['AU']
+
+        response = self.client.post('/api/scan', payload, format='json')
+        self.assertEqual(response.status_code, 200)
+        brand_check = next((item for item in response.data['checks'] if item['check_name'] == 'Brand Impersonation Check'), None)
+        self.assertIsNotNone(brand_check)
+        self.assertEqual(brand_check['risk_points'], -12)
+
+    @patch('guard.risk_engine.external.has_wayback_history', return_value=True)
+    @patch('guard.risk_engine.external.get_https_info', return_value={'has_https': True, 'self_signed': False, 'error': None})
+    @patch('guard.risk_engine.external.get_nameservers', return_value=['ns1.example.net', 'ns2.example.net'])
+    @patch(
+        'guard.risk_engine.external.get_whois_data',
+        return_value={
+            'creation_date': datetime.now(timezone.utc) - timedelta(days=900),
+            'updated_date': datetime.now(timezone.utc) - timedelta(days=120),
+            'registrar': 'Example Registrar',
+        },
+    )
+    def test_brand_check_penalizes_typosquat_domain(self, *_mocks):
+        payload = self.scan_payload('brand-typo-hash')
+        payload['domain'] = 't0rget.com.au'
+        payload['include_checks'] = True
+        payload['extracted_signals']['contact'] = {
+            'email': True,
+            'phone': False,
+            'contact_page': True,
+            'address': False,
+        }
+        payload['extracted_signals']['currency'] = 'AUD'
+        payload['extracted_signals']['shipping_destinations'] = ['AU']
+
+        response = self.client.post('/api/scan', payload, format='json')
+        self.assertEqual(response.status_code, 200)
+        brand_check = next((item for item in response.data['checks'] if item['check_name'] == 'Brand Impersonation Check'), None)
+        self.assertIsNotNone(brand_check)
+        self.assertEqual(brand_check['risk_points'], 45)

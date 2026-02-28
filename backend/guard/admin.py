@@ -9,6 +9,8 @@ from guard.forms import ManualScanForm
 from guard.models import (
     ApiAccessToken,
     ApiRefreshToken,
+    Brand,
+    BrandDomain,
     CheckResult,
     DeviceAuthSession,
     EvidenceSnapshot,
@@ -175,3 +177,17 @@ class ApiRefreshTokenAdmin(admin.ModelAdmin):
         'access_token',
         'created_from_device',
     )
+
+
+@admin.register(Brand)
+class BrandAdmin(admin.ModelAdmin):
+    list_display = ('name', 'is_active', 'created_at')
+    list_filter = ('is_active',)
+    search_fields = ('name',)
+
+
+@admin.register(BrandDomain)
+class BrandDomainAdmin(admin.ModelAdmin):
+    list_display = ('domain', 'brand', 'domain_type', 'is_official', 'is_active', 'source')
+    list_filter = ('domain_type', 'is_official', 'is_active', 'source')
+    search_fields = ('domain', 'brand__name')
