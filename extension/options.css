@@ -123,6 +123,11 @@ button.secondary {
   background: #334155;
 }
 
+button.danger {
+  border-color: #7f1d1d;
+  background: #b91c1c;
+}
+
 .status {
   margin-top: 14px;
   font-size: 0.92rem;

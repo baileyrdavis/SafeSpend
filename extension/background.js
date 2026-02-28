@@ -4,16 +4,22 @@ const DEFAULT_CACHE_TTL_HOURS = 24;
 const STORAGE_KEYS = {
   CACHE: 'scan_cache',
   TAB_DOMAINS: 'tab_domains',
+  TAB_STATES: 'tab_states',
   INSTALL_HASH: 'install_hash',
   CACHE_CLEANUP_AT: 'last_cache_cleanup_at',
   AUTH_STATE: 'auth_state',
-  DEVICE_AUTH: 'device_auth_session'
+  DEVICE_AUTH: 'device_auth_session',
+  ALERT_STATE: 'alert_state'
 };
 
 const CLOCK_SKEW_MS = 45 * 1000;
 const CACHE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 let authPollTimer = null;
+const activeScansByTab = new Map();
+const inFlightScanRequests = new Map();
+let lastAuthHintPollAtMs = 0;
+const ALERT_DEDUP_WINDOW_MS = 25 * 60 * 1000;
 
 function storageGet(area, keys) {
   return new Promise((resolve) => {
@@ -149,6 +155,15 @@ async function setTabDomains(tabDomains) {
   await storageSet('local', { [STORAGE_KEYS.TAB_DOMAINS]: tabDomains });
 }
 
+async function getTabStates() {
+  const localData = await storageGet('local', [STORAGE_KEYS.TAB_STATES]);
+  return localData[STORAGE_KEYS.TAB_STATES] || {};
+}
+
+async function setTabStates(tabStates) {
+  await storageSet('local', { [STORAGE_KEYS.TAB_STATES]: tabStates });
+}
+
 async function getAuthState() {
   const localData = await storageGet('local', [STORAGE_KEYS.AUTH_STATE]);
   return localData[STORAGE_KEYS.AUTH_STATE] || {};
@@ -204,20 +219,54 @@ async function cleanupExpiredCache(force = false) {
 }
 
 async function setBadge(tabId, result) {
-  const style = trustBadgeStyle(result?.trust_level || 'LOW');
+  const score = safeNumber(result?.risk_score, 0);
+  const trust = String(result?.trust_level || 'LOW');
+  const style = trustBadgeStyle(trust);
+  const badgeText = score >= 61 ? '!!' : score >= 31 ? '!' : 'OK';
+  const title = `SafeSpend: ${score}/100 risk (${trust})`;
   await chrome.action.setBadgeBackgroundColor({ tabId, color: style.color });
-  await chrome.action.setBadgeText({ tabId, text: String(result?.risk_score ?? style.text) });
+  await chrome.action.setBadgeText({ tabId, text: badgeText });
+  await chrome.action.setTitle({ tabId, title });
 }
 
 async function clearBadge(tabId) {
   await chrome.action.setBadgeText({ tabId, text: '' });
+  await chrome.action.setTitle({ tabId, title: 'SafeSpend' });
 }
 
 async function clearTabState(tabId) {
   const tabDomains = await getTabDomains();
+  const tabStates = await getTabStates();
   delete tabDomains[String(tabId)];
+  delete tabStates[String(tabId)];
   await setTabDomains(tabDomains);
+  await setTabStates(tabStates);
+  activeScansByTab.delete(String(tabId));
   await clearBadge(tabId);
+}
+
+function markScanInProgress(tabId, domain) {
+  activeScansByTab.set(String(tabId), {
+    domain: normalizeDomain(domain),
+    started_at_ms: Date.now()
+  });
+}
+
+function clearScanInProgress(tabId) {
+  activeScansByTab.delete(String(tabId));
+}
+
+function getScanProgress(tabId, domain) {
+  const entry = activeScansByTab.get(String(tabId));
+  if (!entry) return null;
+  if (!domain || entry.domain === normalizeDomain(domain)) {
+    return {
+      domain: entry.domain,
+      started_at_ms: entry.started_at_ms,
+      elapsed_ms: Math.max(0, Date.now() - safeNumber(entry.started_at_ms, Date.now()))
+    };
+  }
+  return null;
 }
 
 async function triggerActiveTabExtraction() {
@@ -240,6 +289,7 @@ function authStatePayload(authState, deviceSession) {
 
   return {
     authenticated,
+    preview_mode: !authenticated,
     refresh_available: refreshAvailable,
     in_progress: sessionPending,
     user_code: sessionPending ? deviceSession.user_code : null,
@@ -274,6 +324,38 @@ function scheduleAuthPolling(seconds) {
   authPollTimer = setTimeout(() => {
     void pollDeviceAuthorization();
   }, Math.max(1, safeNumber(seconds, 5)) * 1000);
+}
+
+async function pollDeviceAuthorizationFromHint() {
+  const now = Date.now();
+  if (now - lastAuthHintPollAtMs < 900) {
+    return;
+  }
+  lastAuthHintPollAtMs = now;
+  await pollDeviceAuthorization();
+}
+
+async function maybePollAfterVerifyTabUpdate(tabId, changeInfo, tab) {
+  if (changeInfo.status !== 'complete') {
+    return;
+  }
+
+  const session = await getDeviceAuthSession();
+  if (!session || session.status !== 'pending' || safeNumber(session.expires_at_ms, 0) <= Date.now()) {
+    return;
+  }
+
+  const config = await getExtensionConfig();
+  const tabUrl = String(changeInfo.url || tab?.url || '');
+  const expectedPrefix = `${config.apiBaseUrl}/auth/device/verify`;
+  const sameTab = safeNumber(session.verification_tab_id, -1) === safeNumber(tabId, -2);
+  const onVerifyPage = tabUrl.startsWith(expectedPrefix);
+
+  if (!sameTab && !onVerifyPage) {
+    return;
+  }
+
+  await pollDeviceAuthorizationFromHint();
 }
 
 async function finalizeAuthorizedSession(payload) {
@@ -335,7 +417,7 @@ async function pollDeviceAuthorization() {
 
   const errorCode = String(payload?.error || '');
   if (response.status === 428 || errorCode === 'authorization_pending') {
-    scheduleAuthPolling(session.interval_seconds || 5);
+    scheduleAuthPolling(Math.min(session.interval_seconds || 5, 2));
     return;
   }
 
@@ -353,7 +435,11 @@ async function startDeviceAuthorization(interactive = true) {
   const existing = await getDeviceAuthSession();
   if (existing && existing.status === 'pending' && existing.expires_at_ms > Date.now()) {
     if (interactive) {
-      await chrome.tabs.create({ url: existing.verification_uri_complete });
+      const tab = await chrome.tabs.create({ url: existing.verification_uri_complete });
+      await setDeviceAuthSession({
+        ...existing,
+        verification_tab_id: tab?.id ?? null,
+      });
     }
     scheduleAuthPolling(existing.interval_seconds || 5);
     return existing;
@@ -381,18 +467,24 @@ async function startDeviceAuthorization(interactive = true) {
     device_code: payload.device_code,
     user_code: payload.user_code,
     verification_uri_complete: payload.verification_uri_complete,
+    verification_tab_id: null,
     interval_seconds: safeNumber(payload.interval, 5),
     expires_at_ms: Date.now() + safeNumber(payload.expires_in, 0) * 1000,
     status: 'pending',
     error: ''
   };
 
-  await setDeviceAuthSession(nextSession);
+  let sessionToSave = nextSession;
   if (interactive) {
-    await chrome.tabs.create({ url: payload.verification_uri_complete });
+    const tab = await chrome.tabs.create({ url: payload.verification_uri_complete });
+    sessionToSave = {
+      ...nextSession,
+      verification_tab_id: tab?.id ?? null,
+    };
   }
+  await setDeviceAuthSession(sessionToSave);
   scheduleAuthPolling(nextSession.interval_seconds);
-  return nextSession;
+  return sessionToSave;
 }
 
 async function refreshAccessToken(config, installHash, authState) {
@@ -464,7 +556,7 @@ async function requestScan(domain, signals) {
   const installHash = await ensureInstallHash();
   let accessToken = await ensureAccessToken({ interactive: false });
   if (!accessToken) {
-    throw createAuthRequiredError();
+    return buildPreviewSummary(domain, signals);
   }
 
   await postSeenTelemetry(domain, installHash, accessToken, config);
@@ -490,7 +582,7 @@ async function requestScan(domain, signals) {
     const authState = await getAuthState();
     accessToken = await refreshAccessToken(config, installHash, authState);
     if (!accessToken) {
-      throw createAuthRequiredError();
+      return buildPreviewSummary(domain, signals);
     }
     response = await fetch(`${config.apiBaseUrl}/api/scan`, {
       method: 'POST',
@@ -507,6 +599,72 @@ async function requestScan(domain, signals) {
   }
 
   return sanitizeSummaryResult(await response.json());
+}
+
+function buildPreviewSummary(domain, signals) {
+  const reasons = [];
+  let score = 0;
+  const policies = signals?.policies || {};
+  const contact = signals?.contact || {};
+  const platform = String(signals?.platform || 'unknown').toLowerCase();
+
+  if (!signals?.is_https) {
+    score += 25;
+    reasons.push({
+      check_name: 'HTTPS Preview Check',
+      risk_points: 25,
+      severity: 'HIGH',
+      explanation: 'Site is not using HTTPS.'
+    });
+  }
+
+  const hasPolicy = Boolean(policies.refund || policies.privacy || policies.terms);
+  if (!hasPolicy) {
+    score += 18;
+    reasons.push({
+      check_name: 'Policy Preview Check',
+      risk_points: 18,
+      severity: 'WARNING',
+      explanation: 'No clear policy pages detected from this page.'
+    });
+  }
+
+  const hasContact = Boolean(contact.email || contact.phone || contact.contact_page || contact.address);
+  if (!hasContact) {
+    score += 16;
+    reasons.push({
+      check_name: 'Contact Preview Check',
+      risk_points: 16,
+      severity: 'WARNING',
+      explanation: 'No obvious contact method detected from this page.'
+    });
+  }
+
+  if (signals?.custom_checkout) {
+    score += 12;
+    reasons.push({
+      check_name: 'Checkout Preview Check',
+      risk_points: 12,
+      severity: 'WARNING',
+      explanation: 'Checkout appears to move to a different domain.'
+    });
+  }
+
+  if (['shopify', 'woocommerce', 'magento', 'bigcommerce'].includes(platform)) {
+    score = Math.max(0, score - 4);
+  }
+
+  const trustLevel = score <= 20 ? 'HIGH' : score <= 50 ? 'MEDIUM' : 'LOW';
+  return {
+    risk_score: Math.max(0, Math.min(100, score)),
+    trust_level: trustLevel,
+    score_confidence: 0.45,
+    last_scanned_at: new Date().toISOString(),
+    disclaimer: 'Preview mode: sign in for full backend checks, known-brand spoof detection, and history.',
+    top_reasons: reasons.slice(0, 3),
+    preview_mode: true,
+    domain
+  };
 }
 
 function canUseCacheEntry(cachedEntry, htmlHash, ttlMs, now) {
@@ -529,6 +687,7 @@ async function resolveDomainSummary(tabId, domain, signals) {
   const htmlHash = signals?.html_hash || null;
   const cache = await getCache();
   const cachedEntry = cache[domain];
+  const scanKey = `${domain}|${htmlHash || ''}`;
 
   if (canUseCacheEntry(cachedEntry, htmlHash, ttlMs, now)) {
     const cachedResult = withResultMetadata(cachedEntry.summary, true, false);
@@ -537,7 +696,15 @@ async function resolveDomainSummary(tabId, domain, signals) {
   }
 
   try {
-    const freshSummary = await requestScan(domain, signals);
+    let scanPromise = inFlightScanRequests.get(scanKey);
+    if (!scanPromise) {
+      scanPromise = requestScan(domain, signals).finally(() => {
+        inFlightScanRequests.delete(scanKey);
+      });
+      inFlightScanRequests.set(scanKey, scanPromise);
+    }
+
+    const freshSummary = await scanPromise;
     const freshResult = withResultMetadata(freshSummary, false, false);
 
     cache[domain] = {
@@ -574,6 +741,47 @@ async function getSummaryForDomain(domain) {
     return null;
   }
   return withResultMetadata(entry.summary, false, false);
+}
+
+async function getAlertState() {
+  const localData = await storageGet('local', [STORAGE_KEYS.ALERT_STATE]);
+  return localData[STORAGE_KEYS.ALERT_STATE] || {};
+}
+
+async function setAlertState(state) {
+  await storageSet('local', { [STORAGE_KEYS.ALERT_STATE]: state });
+}
+
+async function maybeNotifyHighRisk(domain, result) {
+  const score = safeNumber(result?.risk_score, 0);
+  if (score < 60) {
+    return;
+  }
+
+  const now = Date.now();
+  const alertState = await getAlertState();
+  const lastAt = safeNumber(alertState[domain], 0);
+  if (now - lastAt < ALERT_DEDUP_WINDOW_MS) {
+    return;
+  }
+
+  const topReason = Array.isArray(result?.top_reasons) && result.top_reasons.length
+    ? String(result.top_reasons[0].explanation || result.top_reasons[0].check_name || 'Potential risk indicators were detected.')
+    : 'Potential risk indicators were detected.';
+
+  try {
+    await chrome.notifications.create(`risk-${domain}-${now}`, {
+      type: 'basic',
+      iconUrl: 'icons/icon-128.png',
+      title: 'SafeSpend Risk Alert',
+      message: `${domain} scored ${score}/100 risk. ${topReason}`,
+      priority: 2,
+    });
+    alertState[domain] = now;
+    await setAlertState(alertState);
+  } catch (_error) {
+    // Notifications are optional. Continue silently if unavailable.
+  }
 }
 
 function sanitizeDetailedChecks(latestScan) {
@@ -647,6 +855,40 @@ async function signOutCurrentInstall() {
   return getAuthStatePayload();
 }
 
+async function openRegisterPage() {
+  const config = await getExtensionConfig();
+  await chrome.tabs.create({ url: `${config.apiBaseUrl}/auth/register` });
+}
+
+async function deleteCurrentAccount() {
+  const config = await getExtensionConfig();
+  const authState = await getAuthState();
+  if (!authState?.access_token) {
+    throw new Error('Sign in required before deleting account.');
+  }
+
+  const response = await fetch(`${config.apiBaseUrl}/api/auth/account/delete`, {
+    method: 'POST',
+    headers: buildHeaders(authState.access_token, true),
+    body: JSON.stringify({})
+  });
+
+  if (!response.ok) {
+    let detail = 'Could not delete account.';
+    try {
+      const payload = await response.json();
+      detail = payload?.detail || detail;
+    } catch (_error) {
+      // ignore
+    }
+    throw new Error(detail);
+  }
+
+  await clearAuthState();
+  await clearDeviceAuthSession();
+  return getAuthStatePayload();
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   const syncData = await storageGet('sync', ['api_base_url', 'cache_ttl_hours']);
   const defaults = {};
@@ -671,6 +913,10 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   await clearTabState(tabId);
 });
 
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  void maybePollAfterVerifyTabUpdate(tabId, changeInfo, tab);
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'PAGE_SIGNALS') {
     (async () => {
@@ -688,10 +934,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         const tabDomains = await getTabDomains();
+        const tabStates = await getTabStates();
         tabDomains[String(tabId)] = domain;
+        tabStates[String(tabId)] = {
+          kind: 'scannable',
+          updated_at_ms: Date.now()
+        };
         await setTabDomains(tabDomains);
+        await setTabStates(tabStates);
 
+        markScanInProgress(tabId, domain);
         const summary = await resolveDomainSummary(tabId, domain, message.payload?.signals || {});
+        await maybeNotifyHighRisk(domain, summary);
         sendResponse({ ok: true, domain, result: summary, auth: await getAuthStatePayload() });
       } catch (error) {
         if (error?.code === 'auth_required') {
@@ -705,6 +959,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         sendResponse({ ok: false, error: error.message || 'Scan failed.' });
       } finally {
+        if (typeof sender.tab?.id === 'number') {
+          clearScanInProgress(sender.tab.id);
+        }
         await cleanupExpiredCache();
       }
     })();
@@ -715,7 +972,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       const tabId = sender.tab?.id;
       if (typeof tabId === 'number') {
-        await clearTabState(tabId);
+        const tabStates = await getTabStates();
+        tabStates[String(tabId)] = {
+          kind: 'not_supported',
+          reason: 'This page does not look like a supported online store page yet.',
+          updated_at_ms: Date.now()
+        };
+        const tabDomains = await getTabDomains();
+        delete tabDomains[String(tabId)];
+        await setTabDomains(tabDomains);
+        await setTabStates(tabStates);
+        await clearBadge(tabId);
       }
       sendResponse({ ok: true });
     })();
@@ -725,15 +992,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'GET_RESULT_FOR_ACTIVE_TAB') {
     (async () => {
       try {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const tabId = typeof activeTab?.id === 'number' ? activeTab.id : null;
         const domain = await getActiveTabDomain();
         if (!domain) {
-          sendResponse({ ok: false, error: 'No domain found for this tab.', auth: await getAuthStatePayload() });
+          const tabStates = await getTabStates();
+          const pageState = tabId === null ? null : tabStates[String(tabId)] || null;
+          sendResponse({
+            ok: false,
+            error: 'No domain found for this tab.',
+            page_state: pageState,
+            auth: await getAuthStatePayload()
+          });
           return;
         }
 
         const summary = await getSummaryForDomain(domain);
         if (!summary) {
-          sendResponse({ ok: false, error: 'No scan result found yet for this tab.', auth: await getAuthStatePayload() });
+          const progress = tabId === null ? null : getScanProgress(tabId, domain);
+          sendResponse({
+            ok: false,
+            error: progress ? 'Scan is currently running for this site.' : 'No scan result found yet for this tab.',
+            scan_in_progress: Boolean(progress),
+            scan_progress: progress,
+            auth: await getAuthStatePayload()
+          });
           return;
         }
 
@@ -804,6 +1087,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === 'OPEN_REGISTER_PAGE') {
+    (async () => {
+      try {
+        await openRegisterPage();
+        sendResponse({ ok: true });
+      } catch (error) {
+        sendResponse({ ok: false, error: error.message || 'Could not open registration page.' });
+      }
+    })();
+    return true;
+  }
+
   if (message?.type === 'SIGN_OUT') {
     (async () => {
       const auth = await signOutCurrentInstall();
@@ -812,9 +1107,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === 'DELETE_ACCOUNT') {
+    (async () => {
+      try {
+        const auth = await deleteCurrentAccount();
+        sendResponse({ ok: true, auth });
+      } catch (error) {
+        sendResponse({ ok: false, error: error.message || 'Could not delete account.' });
+      }
+    })();
+    return true;
+  }
+
   if (message?.type === 'CLEAR_EXTENSION_CACHE') {
     (async () => {
       await storageRemove('local', [STORAGE_KEYS.CACHE]);
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (message?.type === 'RUN_ACTIVE_EXTRACTION') {
+    (async () => {
+      await triggerActiveTabExtraction();
       sendResponse({ ok: true });
     })();
     return true;

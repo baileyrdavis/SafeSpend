@@ -56,19 +56,25 @@ function setButtonLoading(button, loadingText, isLoading, restoreLabel = true) {
 function renderAuthSummary(auth) {
   const summary = byId('authSummary');
   const connectBtn = byId('connectBtn');
+  const registerBtn = byId('registerBtn');
   const signOutBtn = byId('signOutBtn');
+  const deleteAccountBtn = byId('deleteAccountBtn');
 
   if (!auth) {
     summary.textContent = 'Checking account status...';
     connectBtn.classList.remove('hidden');
+    registerBtn.classList.add('hidden');
     signOutBtn.classList.add('hidden');
+    deleteAccountBtn.classList.add('hidden');
     return;
   }
 
   if (auth.authenticated) {
-    summary.textContent = 'Connected. Scans are active.';
+    summary.textContent = 'Connected. Full backend scanning and account security are active.';
     connectBtn.classList.add('hidden');
+    registerBtn.classList.add('hidden');
     signOutBtn.classList.remove('hidden');
+    deleteAccountBtn.classList.remove('hidden');
     return;
   }
 
@@ -78,14 +84,18 @@ function renderAuthSummary(auth) {
       : 'Sign-in in progress.';
     connectBtn.textContent = 'Resume Sign In';
     connectBtn.classList.remove('hidden');
+    registerBtn.classList.add('hidden');
     signOutBtn.classList.add('hidden');
+    deleteAccountBtn.classList.add('hidden');
     return;
   }
 
-  summary.textContent = auth.auth_error || 'Not connected yet. Click Connect SafeSpend.';
+  summary.textContent = auth.auth_error || 'Preview mode only. Create/sign in to enable full checks.';
   connectBtn.textContent = 'Connect SafeSpend';
   connectBtn.classList.remove('hidden');
+  registerBtn.classList.remove('hidden');
   signOutBtn.classList.add('hidden');
+  deleteAccountBtn.classList.add('hidden');
 }
 
 async function refreshAuthSummary() {
@@ -185,6 +195,21 @@ async function connectAccount() {
   }
 }
 
+async function openRegisterPage() {
+  const button = byId('registerBtn');
+  setButtonLoading(button, 'Opening...', true);
+  try {
+    const response = await sendMessage({ type: 'OPEN_REGISTER_PAGE' });
+    if (!response?.ok) {
+      setStatus(response?.error || 'Could not open registration page.', 'error');
+      return;
+    }
+    setStatus('Registration page opened. Create account, then connect SafeSpend.');
+  } finally {
+    setButtonLoading(button, '', false);
+  }
+}
+
 async function signOutAccount() {
   const button = byId('signOutBtn');
   setButtonLoading(button, 'Signing out...', true);
@@ -197,6 +222,30 @@ async function signOutAccount() {
     }
     renderAuthSummary(response.auth || null);
     setStatus('Signed out for this browser.');
+  } finally {
+    setButtonLoading(button, '', false);
+  }
+}
+
+async function deleteAccount() {
+  const confirmed = window.confirm(
+    'Delete your SafeSpend account and install-linked data? This cannot be undone.',
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  const button = byId('deleteAccountBtn');
+  setButtonLoading(button, 'Deleting...', true);
+  setStatus('Deleting account and related data...', 'info');
+  try {
+    const response = await sendMessage({ type: 'DELETE_ACCOUNT' });
+    if (!response?.ok) {
+      setStatus(response?.error || 'Could not delete account.', 'error');
+      return;
+    }
+    renderAuthSummary(response.auth || null);
+    setStatus('Account deleted for this user. Extension returned to preview mode.');
   } finally {
     setButtonLoading(button, '', false);
   }
@@ -217,7 +266,9 @@ async function clearCache() {
 byId('saveBtn').addEventListener('click', saveSettings);
 byId('testBtn').addEventListener('click', testConnection);
 byId('connectBtn').addEventListener('click', connectAccount);
+byId('registerBtn').addEventListener('click', openRegisterPage);
 byId('signOutBtn').addEventListener('click', signOutAccount);
+byId('deleteAccountBtn').addEventListener('click', deleteAccount);
 byId('clearCacheBtn').addEventListener('click', clearCache);
 
 void loadSettings();

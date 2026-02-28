@@ -8,11 +8,17 @@ function trustColor(level) {
   return '#ef4444';
 }
 
+const LOCAL_DATE_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+  hour12: true
+});
+
 function formatDate(value) {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
+  return LOCAL_DATE_TIME_FORMATTER.format(date);
 }
 
 function formatConfidence(value) {
@@ -25,6 +31,14 @@ function setStatus(message, type = 'info') {
   const status = byId('status');
   status.className = `status ${type}`;
   status.textContent = message;
+}
+
+function setScanActivity(visible, message = 'Scanning this site now...') {
+  const panel = byId('scanActivity');
+  const label = byId('scanActivityLabel');
+  if (!panel || !label) return;
+  label.textContent = message;
+  panel.classList.toggle('hidden', !visible);
 }
 
 function setButtonLoading(button, loadingText, isLoading, restoreLabel = true) {
@@ -48,18 +62,21 @@ function setButtonLoading(button, loadingText, isLoading, restoreLabel = true) {
 function renderAuthState(auth) {
   const panel = byId('authState');
   const connectBtn = byId('connectBtn');
+  const registerBtn = byId('registerBtn');
 
   if (!auth) {
     panel.className = 'auth-card info';
     panel.textContent = 'Checking sign-in status...';
     connectBtn.classList.add('hidden');
+    registerBtn.classList.add('hidden');
     return;
   }
 
   if (auth.authenticated) {
     panel.className = 'auth-card ok';
-    panel.textContent = 'Connected. Scans are active.';
+    panel.textContent = 'Connected: full SafeSpend checks, brand spoof detection, and account-backed session security are active.';
     connectBtn.classList.add('hidden');
+    registerBtn.classList.add('hidden');
     return;
   }
 
@@ -70,22 +87,35 @@ function renderAuthState(auth) {
       : 'Finish sign-in to activate scans.';
     connectBtn.textContent = 'Resume Sign In';
     connectBtn.classList.remove('hidden');
+    registerBtn.classList.add('hidden');
     return;
   }
 
-  panel.className = 'auth-card warn';
-  panel.textContent = auth.auth_error || 'Sign in once to protect scans and data access.';
+  panel.className = 'auth-card info';
+  panel.textContent = auth.auth_error
+    ? `${auth.auth_error} Preview mode active with basic checks.`
+    : 'Preview mode active: sign in for full backend verification and account protections.';
   connectBtn.textContent = 'Connect SafeSpend';
   connectBtn.classList.remove('hidden');
+  registerBtn.classList.remove('hidden');
 }
 
 function renderSummary(result, domain) {
   const suffix = result?.stale_cache ? ' (stale cache)' : result?.from_cache ? ' (cached)' : '';
-  setStatus(`Latest scan loaded for ${domain}${suffix}`, 'ok');
+  setScanActivity(false);
+  if (result?.preview_mode) {
+    setStatus(`Preview scan loaded for ${domain}${suffix}`, 'info');
+  } else {
+    setStatus(`Latest scan loaded for ${domain}${suffix}`, 'ok');
+  }
 
   byId('summary').classList.remove('hidden');
   byId('reasons').classList.remove('hidden');
-  byId('details').classList.remove('hidden');
+  if (result?.preview_mode) {
+    byId('details').classList.add('hidden');
+  } else {
+    byId('details').classList.remove('hidden');
+  }
 
   byId('riskScore').textContent = String(result.risk_score ?? '-');
 
@@ -150,6 +180,14 @@ async function refreshPopupData() {
   renderAuthState(response?.auth || null);
 
   if (!response?.ok) {
+    if (response?.scan_in_progress) {
+      const elapsedMs = Number(response?.scan_progress?.elapsed_ms || 0);
+      const elapsedSeconds = Math.max(1, Math.round(elapsedMs / 1000));
+      setScanActivity(true, `Scanning this site... ${elapsedSeconds}s`);
+      setStatus(`Running scan for this site... (${elapsedSeconds}s)`, 'info');
+      return;
+    }
+    setScanActivity(false);
     if (response?.auth_required) {
       setStatus('Sign in required before scans can run.', 'error');
       return;
@@ -159,6 +197,15 @@ async function refreshPopupData() {
   }
 
   renderSummary(response.result, response.domain);
+}
+
+async function triggerActiveExtraction() {
+  await sendMessage({ type: 'RUN_ACTIVE_EXTRACTION' });
+}
+
+async function isActiveTabId(tabId) {
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return typeof activeTab?.id === 'number' && activeTab.id === tabId;
 }
 
 async function beginAuthFlow() {
@@ -175,6 +222,21 @@ async function beginAuthFlow() {
     renderAuthState(response?.auth || null);
   } finally {
     setButtonLoading(connectBtn, '', false, false);
+  }
+}
+
+async function openRegisterPage() {
+  const registerBtn = byId('registerBtn');
+  setButtonLoading(registerBtn, 'Opening...', true);
+  try {
+    const response = await sendMessage({ type: 'OPEN_REGISTER_PAGE' });
+    if (!response?.ok) {
+      setStatus(response?.error || 'Could not open account registration.', 'error');
+      return;
+    }
+    setStatus('Registration page opened. Create account, then return to connect.', 'info');
+  } finally {
+    setButtonLoading(registerBtn, '', false);
   }
 }
 
@@ -200,6 +262,7 @@ async function loadDetailedBreakdown() {
 
 function setupInteractions() {
   byId('connectBtn').addEventListener('click', beginAuthFlow);
+  byId('registerBtn').addEventListener('click', openRegisterPage);
   byId('loadDetailsBtn').addEventListener('click', loadDetailedBreakdown);
   byId('openOptions').addEventListener('click', () => {
     if (chrome.runtime.openOptionsPage) {
@@ -208,7 +271,29 @@ function setupInteractions() {
   });
 }
 
+function setupLiveTabRefresh() {
+  chrome.tabs.onActivated.addListener(() => {
+    void triggerActiveExtraction();
+    void refreshPopupData();
+  });
+
+  chrome.tabs.onUpdated.addListener((_tabId, changeInfo, _tab) => {
+    void (async () => {
+      if (changeInfo.status !== 'loading' && changeInfo.status !== 'complete') {
+        return;
+      }
+      if (!(await isActiveTabId(_tabId))) {
+        return;
+      }
+      await triggerActiveExtraction();
+      await refreshPopupData();
+    })();
+  });
+}
+
 setupInteractions();
+setupLiveTabRefresh();
+void triggerActiveExtraction();
 void refreshPopupData();
 setInterval(() => {
   void refreshPopupData();

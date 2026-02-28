@@ -16,10 +16,20 @@
       <section id="authState" class="auth-card info">Checking sign-in status...</section>
       <div class="actions-row">
         <button id="connectBtn" class="primary hidden" type="button">Connect SafeSpend</button>
+        <button id="registerBtn" class="primary secondary hidden" type="button">Create Account</button>
         <button id="openOptions" class="link-btn" type="button">Settings</button>
       </div>
 
       <section id="status" class="status info">Loading current tab...</section>
+      <section id="scanActivity" class="scan-activity hidden" aria-live="polite">
+        <div class="scan-head">
+          <span class="scan-dot"></span>
+          <span id="scanActivityLabel">Scanning this site now...</span>
+        </div>
+        <div class="scan-track">
+          <div class="scan-track-fill"></div>
+        </div>
+      </section>
 
       <section id="summary" class="summary hidden">
         <div class="score-row">
