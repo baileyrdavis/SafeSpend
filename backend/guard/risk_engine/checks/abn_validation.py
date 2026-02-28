@@ -17,9 +17,9 @@ def is_valid_abn(value: str) -> bool:
 
 
 def _is_au_context(domain: str, signals: dict) -> bool:
-    shipping = [str(item).upper() for item in (signals.get('shipping_destinations') or [])]
-    currency = str(signals.get('currency') or '').upper()
-    return domain.endswith('.au') or currency == 'AUD' or 'AU' in shipping
+    # Restrict ABN validation to AU-registered domains to avoid false positives
+    # on global storefronts that list AU shipping/currency.
+    return str(domain or '').lower().endswith('.au')
 
 
 class AbnValidationCheck(BaseRiskCheck):
@@ -50,6 +50,15 @@ class AbnValidationCheck(BaseRiskCheck):
             'domain_abn_match': domain_abn_matches,
             'domain_eligibility_type': str(eligibility.get('eligibility_type') or ''),
         }
+
+        if not au_context:
+            return self.output(
+                risk_points=0,
+                confidence=0.8,
+                severity=Severity.INFO,
+                explanation='ABN validation skipped because this is not an AU domain.',
+                evidence=evidence,
+            )
 
         if domain_abn and candidates and not domain_abn_matches:
             return self.output(

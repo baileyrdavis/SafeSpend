@@ -25,6 +25,7 @@ class HtmlChangeHashCheck(BaseRiskCheck):
             )
 
         previous_hash = (previous_scan.raw_signals or {}).get('html_hash')
+        previous_signals = previous_scan.raw_signals or {}
         if not current_hash or not previous_hash:
             return self.output(
                 risk_points=0,
@@ -34,19 +35,44 @@ class HtmlChangeHashCheck(BaseRiskCheck):
                 evidence={'current_hash_present': bool(current_hash), 'previous_hash_present': bool(previous_hash)},
             )
 
-        if current_hash != previous_hash and previous_scan.scanned_at >= timezone.now() - timedelta(days=30):
+        policies_changed = (signals.get('policies') or {}) != (previous_signals.get('policies') or {})
+        payment_changed = (signals.get('payment_methods') or {}) != (previous_signals.get('payment_methods') or {})
+        checkout_changed = str(signals.get('checkout_domain') or '') != str(previous_signals.get('checkout_domain') or '')
+        contact_profile_changed = str(signals.get('contact_profile_hash') or '') != str(previous_signals.get('contact_profile_hash') or '')
+        address_profile_changed = str(signals.get('address_profile_hash') or '') != str(previous_signals.get('address_profile_hash') or '')
+        meaningful_change_count = sum(
+            bool(item)
+            for item in [policies_changed, payment_changed, checkout_changed, contact_profile_changed, address_profile_changed]
+        )
+
+        evidence = {
+            'previous_hash': previous_hash,
+            'current_hash': current_hash,
+            'policies_changed': policies_changed,
+            'payment_changed': payment_changed,
+            'checkout_changed': checkout_changed,
+            'contact_profile_changed': contact_profile_changed,
+            'address_profile_changed': address_profile_changed,
+            'meaningful_change_count': meaningful_change_count,
+        }
+
+        if (
+            current_hash != previous_hash
+            and previous_scan.scanned_at >= timezone.now() - timedelta(days=30)
+            and meaningful_change_count >= 2
+        ):
             return self.output(
-                risk_points=10,
-                confidence=0.75,
+                risk_points=6,
+                confidence=0.7,
                 severity=Severity.WARNING,
-                explanation='Significant homepage hash delta detected since last scan.',
-                evidence={'previous_hash': previous_hash, 'current_hash': current_hash},
+                explanation='Multiple stability signals changed since the recent previous scan.',
+                evidence=evidence,
             )
 
         return self.output(
             risk_points=0,
             confidence=0.75,
             severity=Severity.INFO,
-            explanation='No suspicious short-term HTML hash change detected.',
-            evidence={'previous_hash': previous_hash, 'current_hash': current_hash},
+            explanation='No suspicious short-term multi-signal change detected.',
+            evidence=evidence,
         )

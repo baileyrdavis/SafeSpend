@@ -11,6 +11,19 @@ def _context():
 
 
 class ScamwatchAlignedChecksTests(TestCase):
+    def test_abn_check_skips_non_au_domain_even_with_candidates(self):
+        check = AbnValidationCheck()
+        output = check.run(
+            domain='alibaba.com',
+            signals={
+                'currency': 'AUD',
+                'shipping_destinations': ['AU'],
+                'abn_signals': {'candidates': ['51824753556']},
+            },
+            context=_context(),
+        )
+        self.assertEqual(output.risk_points, 0)
+
     def test_abn_check_penalizes_invalid_abn_candidates(self):
         check = AbnValidationCheck()
         output = check.run(
