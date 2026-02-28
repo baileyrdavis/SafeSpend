@@ -42,6 +42,7 @@ class ScanApiTests(TestCase):
     @patch('guard.risk_engine.external.has_wayback_history', return_value=True)
     @patch('guard.risk_engine.external.get_https_info', return_value={'has_https': True, 'self_signed': False, 'error': None})
     @patch('guard.risk_engine.external.get_nameservers', return_value=['ns1.example.net', 'ns2.example.net'])
+    @patch('guard.risk_engine.external.get_au_domain_eligibility', return_value={})
     @patch(
         'guard.risk_engine.external.get_whois_data',
         return_value={
@@ -66,6 +67,7 @@ class ScanApiTests(TestCase):
     @patch('guard.risk_engine.external.has_wayback_history', return_value=True)
     @patch('guard.risk_engine.external.get_https_info', return_value={'has_https': True, 'self_signed': False, 'error': None})
     @patch('guard.risk_engine.external.get_nameservers', return_value=['ns1.example.net', 'ns2.example.net'])
+    @patch('guard.risk_engine.external.get_au_domain_eligibility', return_value={})
     @patch(
         'guard.risk_engine.external.get_whois_data',
         return_value={

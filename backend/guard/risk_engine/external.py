@@ -152,6 +152,47 @@ def has_wayback_history(domain: str) -> bool:
     return isinstance(payload, list) and len(payload) > 1
 
 
+@lru_cache(maxsize=2048)
+def get_au_domain_eligibility(domain: str) -> dict[str, Any]:
+    target = str(domain or '').strip().lower()
+    if not target.endswith('.au'):
+        return {}
+
+    # auDA RDAP endpoint exposes eligibility metadata for many .au domains.
+    url = f'https://rdap.auda.org.au/domain/{target}'
+    try:
+        response = requests.get(url, timeout=4)
+        if response.status_code != 200:
+            return {}
+        payload = response.json()
+    except Exception:
+        return {}
+
+    eligibility_id = ''
+    eligibility_type = ''
+    remarks = payload.get('remarks') or []
+    for remark in remarks:
+        title = str(remark.get('title') or '').lower()
+        description = remark.get('description') or []
+        if not isinstance(description, list):
+            description = [description]
+        joined = ' '.join(str(item) for item in description if item is not None)
+        lower_joined = joined.lower()
+
+        if 'eligibility id' in title or 'eligibility id' in lower_joined:
+            digits = ''.join(ch for ch in joined if ch.isdigit())
+            if digits:
+                eligibility_id = digits
+
+        if 'eligibility type' in title or 'eligibility type' in lower_joined:
+            eligibility_type = joined.strip() or eligibility_type
+
+    return {
+        'eligibility_id': eligibility_id,
+        'eligibility_type': eligibility_type,
+    }
+
+
 class ExternalContext:
     def __init__(self, domain: str):
         self.domain = domain
@@ -159,6 +200,7 @@ class ExternalContext:
         self._nameservers: list[str] | None = None
         self._https: dict[str, Any] | None = None
         self._wayback: bool | None = None
+        self._au_domain_eligibility: dict[str, Any] | None = None
 
     @property
     def whois(self) -> dict[str, Any]:
@@ -183,3 +225,9 @@ class ExternalContext:
         if self._wayback is None:
             self._wayback = has_wayback_history(self.domain)
         return self._wayback
+
+    @property
+    def au_domain_eligibility(self) -> dict[str, Any]:
+        if self._au_domain_eligibility is None:
+            self._au_domain_eligibility = get_au_domain_eligibility(self.domain)
+        return self._au_domain_eligibility
