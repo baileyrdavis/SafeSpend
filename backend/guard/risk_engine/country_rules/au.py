@@ -28,7 +28,7 @@ class AustraliaCountryRule(BaseCountryRule):
             )
 
         return CountryRuleOutput(
-            risk_points=-3,
+            risk_points=0,
             confidence=0.7,
             severity=Severity.INFO,
             explanation='Australia-specific signals are internally consistent.',

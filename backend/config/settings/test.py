@@ -15,3 +15,4 @@ PASSWORD_HASHERS = [
 # Keep tests isolated from external mail providers.
 EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
 GUARD_ENABLE_SITEWIDE_ENRICHMENT = False
+GUARD_ENABLE_THREAT_FEED_CHECK = False

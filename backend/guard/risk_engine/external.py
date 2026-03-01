@@ -5,11 +5,14 @@ from functools import lru_cache
 import ipaddress
 import socket
 import ssl
+import time
 from typing import Any
+from urllib.parse import urlparse
 
 import dns.exception
 import dns.resolver
 import requests
+from tldextract import extract
 import whois
 
 
@@ -65,6 +68,11 @@ def _normalize_datetime(value: Any) -> datetime | None:
                 continue
 
     return None
+
+
+def _registered_domain(hostname: str) -> str:
+    parsed = extract(str(hostname or '').strip().lower())
+    return parsed.top_domain_under_public_suffix or str(hostname or '').strip().lower()
 
 
 @lru_cache(maxsize=2048)
@@ -193,6 +201,112 @@ def get_au_domain_eligibility(domain: str) -> dict[str, Any]:
     }
 
 
+def _feed_cache_bucket(seconds: int = 900) -> int:
+    return int(time.time() // max(60, int(seconds)))
+
+
+@lru_cache(maxsize=4)
+def _download_openphish_feed(bucket: int) -> dict[str, Any]:
+    del bucket
+    result = {
+        'hosts': frozenset(),
+        'count': 0,
+        'error': None,
+    }
+    try:
+        response = requests.get('https://openphish.com/feed.txt', timeout=4)
+        response.raise_for_status()
+        hosts = set()
+        for raw_line in str(response.text or '').splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith('#'):
+                continue
+            host = (urlparse(line).hostname or '').strip().lower()
+            if host:
+                hosts.add(host)
+        result['hosts'] = frozenset(hosts)
+        result['count'] = len(hosts)
+    except Exception as exc:
+        result['error'] = str(exc)
+    return result
+
+
+@lru_cache(maxsize=4)
+def _download_urlhaus_hostfile(bucket: int) -> dict[str, Any]:
+    del bucket
+    result = {
+        'hosts': frozenset(),
+        'count': 0,
+        'error': None,
+    }
+    try:
+        response = requests.get('https://urlhaus.abuse.ch/downloads/hostfile/', timeout=4)
+        response.raise_for_status()
+        hosts = set()
+        for raw_line in str(response.text or '').splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            host = str(parts[1] or '').strip().lower()
+            if host:
+                hosts.add(host)
+        result['hosts'] = frozenset(hosts)
+        result['count'] = len(hosts)
+    except Exception as exc:
+        result['error'] = str(exc)
+    return result
+
+
+@lru_cache(maxsize=2048)
+def get_threat_feed_reputation(domain: str) -> dict[str, Any]:
+    host = str(domain or '').strip().lower()
+    root = _registered_domain(host)
+    if not host:
+        return {
+            'matched': False,
+            'matched_feeds': [],
+            'matched_host': '',
+            'matched_root_domain': '',
+            'feed_errors': {},
+            'feed_counts': {},
+        }
+
+    openphish = _download_openphish_feed(_feed_cache_bucket())
+    urlhaus = _download_urlhaus_hostfile(_feed_cache_bucket())
+    candidate_hosts = {host, host.removeprefix('www.')}
+    candidate_hosts = {item for item in candidate_hosts if item}
+
+    matched_feeds: list[str] = []
+    matched_host = ''
+    matched_root = ''
+
+    for feed_name, feed_data in [('openphish', openphish), ('urlhaus_hostfile', urlhaus)]:
+        hosts = set(feed_data.get('hosts') or [])
+        matched_candidates = sorted(candidate_hosts.intersection(hosts))
+        if matched_candidates:
+            matched_feeds.append(feed_name)
+            matched_host = matched_candidates[0]
+            matched_root = _registered_domain(matched_host)
+
+    return {
+        'matched': bool(matched_feeds),
+        'matched_feeds': matched_feeds,
+        'matched_host': matched_host,
+        'matched_root_domain': matched_root or root,
+        'feed_errors': {
+            'openphish': openphish.get('error'),
+            'urlhaus_hostfile': urlhaus.get('error'),
+        },
+        'feed_counts': {
+            'openphish': int(openphish.get('count') or 0),
+            'urlhaus_hostfile': int(urlhaus.get('count') or 0),
+        },
+    }
+
+
 class ExternalContext:
     def __init__(self, domain: str):
         self.domain = domain
@@ -201,6 +315,7 @@ class ExternalContext:
         self._https: dict[str, Any] | None = None
         self._wayback: bool | None = None
         self._au_domain_eligibility: dict[str, Any] | None = None
+        self._threat_feed_reputation: dict[str, Any] | None = None
 
     @property
     def whois(self) -> dict[str, Any]:
@@ -231,3 +346,9 @@ class ExternalContext:
         if self._au_domain_eligibility is None:
             self._au_domain_eligibility = get_au_domain_eligibility(self.domain)
         return self._au_domain_eligibility
+
+    @property
+    def threat_feed_reputation(self) -> dict[str, Any]:
+        if self._threat_feed_reputation is None:
+            self._threat_feed_reputation = get_threat_feed_reputation(self.domain)
+        return self._threat_feed_reputation

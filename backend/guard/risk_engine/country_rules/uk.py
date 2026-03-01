@@ -28,7 +28,7 @@ class UnitedKingdomCountryRule(BaseCountryRule):
             )
 
         return CountryRuleOutput(
-            risk_points=-2,
+            risk_points=0,
             confidence=0.65,
             severity=Severity.INFO,
             explanation='UK-specific signals are internally consistent.',

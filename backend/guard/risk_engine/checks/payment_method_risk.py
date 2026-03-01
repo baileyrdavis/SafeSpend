@@ -76,10 +76,10 @@ class PaymentMethodRiskCheck(BaseRiskCheck):
 
         if trusted:
             return self.output(
-                risk_points=-4,
+                risk_points=0,
                 confidence=0.72,
                 severity=Severity.INFO,
-                explanation='Trusted payment method signals were detected.',
+                explanation='Trusted payment methods were detected, but this does not reduce risk on its own.',
                 evidence=evidence,
             )
 

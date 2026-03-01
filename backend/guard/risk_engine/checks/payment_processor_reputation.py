@@ -72,10 +72,10 @@ class PaymentProcessorReputationCheck(BaseRiskCheck):
 
         if has_reputable_provider_signal or has_reputable_method_signal:
             return self.output(
-                risk_points=-4,
+                risk_points=0,
                 confidence=0.74,
                 severity=Severity.INFO,
-                explanation='Reputable payment processor indicators were detected.',
+                explanation='Reputable payment processor indicators were detected, but this is not a standalone trust reduction.',
                 evidence=evidence,
             )
 

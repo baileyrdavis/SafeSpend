@@ -13,7 +13,7 @@ class BrandImpersonationCheck(BaseRiskCheck):
         if exact:
             official_domain, brand_name = exact
             return self.output(
-                risk_points=-12,
+                risk_points=-8,
                 confidence=0.95,
                 severity=Severity.INFO,
                 explanation=f'Domain matches an official {brand_name} domain.',
@@ -46,4 +46,3 @@ class BrandImpersonationCheck(BaseRiskCheck):
             explanation='No strong brand impersonation signals were detected.',
             evidence={'match_type': 'none'},
         )
-

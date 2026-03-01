@@ -166,6 +166,26 @@ function sanitizeReason(value) {
   };
 }
 
+function sanitizeScoreChange(payload) {
+  const raw = payload && typeof payload === 'object' ? payload : {};
+  const deltas = Array.isArray(raw.top_check_deltas) ? raw.top_check_deltas : [];
+  return {
+    has_previous_scan: Boolean(raw.has_previous_scan),
+    previous_risk_score: raw.previous_risk_score === null ? null : safeNumber(raw.previous_risk_score, 0),
+    delta_points: safeNumber(raw.delta_points, 0),
+    direction: ['up', 'down', 'same'].includes(String(raw.direction || '')) ? String(raw.direction) : 'same',
+    previous_scanned_at: raw.previous_scanned_at || null,
+    top_check_deltas: deltas.slice(0, 5).map((item) => ({
+      check_name: String(item?.check_name || 'Unknown check'),
+      delta_points: safeNumber(item?.delta_points, 0),
+      previous_points: safeNumber(item?.previous_points, 0),
+      current_points: safeNumber(item?.current_points, 0),
+      trend: String(item?.trend || ''),
+      current_explanation: String(item?.current_explanation || ''),
+    })),
+  };
+}
+
 function sanitizeSummaryResult(payload, options = {}) {
   const includeChecks = Boolean(options?.includeChecks);
   const sanitized = {
@@ -175,7 +195,8 @@ function sanitizeSummaryResult(payload, options = {}) {
     last_scanned_at: payload?.last_scanned_at || null,
     disclaimer: payload?.disclaimer || 'Risk score is informational only.',
     top_reasons: Array.isArray(payload?.top_reasons) ? payload.top_reasons.slice(0, 3).map(sanitizeReason) : [],
-    top_reductions: Array.isArray(payload?.top_reductions) ? payload.top_reductions.slice(0, 3).map(sanitizeReason) : []
+    top_reductions: Array.isArray(payload?.top_reductions) ? payload.top_reductions.slice(0, 3).map(sanitizeReason) : [],
+    score_change: sanitizeScoreChange(payload?.score_change),
   };
   if (includeChecks) {
     sanitized.checks = sanitizeDetailedChecks({ check_results: payload?.checks || [] });
@@ -1293,7 +1314,9 @@ async function requestScan(domain, signals, options = {}) {
 function buildPreviewSummary(domain, signals) {
   const reasons = [];
   const reductions = [];
-  let score = 0;
+  // Preview mode is intentionally conservative: never present "safe" confidence
+  // from local-only signals.
+  let score = 30;
   const policies = signals?.policies || {};
   const contact = signals?.contact || {};
   const platform = String(signals?.platform || 'unknown').toLowerCase();
@@ -1341,12 +1364,11 @@ function buildPreviewSummary(domain, signals) {
   }
 
   if (['shopify', 'woocommerce', 'magento', 'bigcommerce'].includes(platform)) {
-    score = Math.max(0, score - 4);
     reductions.push({
-      check_name: 'Platform Reputation Preview',
-      risk_points: -4,
+      check_name: 'Platform Preview Context',
+      risk_points: 0,
       severity: 'INFO',
-      explanation: 'Known e-commerce platform signal lowered the preview risk score.'
+      explanation: 'Known platform detected, but preview mode does not lower risk from this signal alone.'
     });
   }
 
@@ -1356,7 +1378,7 @@ function buildPreviewSummary(domain, signals) {
     trust_level: trustLevel,
     score_confidence: 0.45,
     last_scanned_at: new Date().toISOString(),
-    disclaimer: 'Preview mode only: checks are incomplete and less reliable than full backend verification.',
+    disclaimer: 'Preview mode only: checks are incomplete and conservative. Sign in for reliable full verification.',
     top_reasons: reasons.slice(0, 3),
     top_reductions: reductions.slice(0, 3),
     preview_mode: true,

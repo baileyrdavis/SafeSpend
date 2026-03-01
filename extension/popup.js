@@ -143,6 +143,11 @@ function clearRenderedResult() {
   byId('cooldownBanner').classList.add('hidden');
   byId('scanNowRow').classList.add('hidden');
   byId('forceCheckCard').classList.add('hidden');
+  byId('scoreChangePanel').classList.add('hidden');
+  byId('scoreChangePanel').classList.remove('up', 'down');
+  byId('scoreChangeHeadline').textContent = 'No previous scan baseline yet.';
+  byId('scoreChangeList').classList.add('hidden');
+  byId('scoreChangeList').innerHTML = '';
   collapseAdvancedDetails(true);
 }
 
@@ -240,6 +245,7 @@ function renderSummary(result, domain) {
   byId('scoreConfidence').textContent = formatConfidence(result?.score_confidence);
   byId('lastScannedAt').textContent = formatDate(result?.last_scanned_at);
   byId('disclaimerText').textContent = result?.disclaimer || 'Risk score is informational only.';
+  renderScoreChange(result?.score_change);
   renderTopReductions(result?.top_reductions);
   renderVerifiedCompanyBanner(result?.top_reductions);
 
@@ -279,6 +285,55 @@ function renderSummary(result, domain) {
       : '',
     previewMode ? 'info' : 'ok'
   );
+}
+
+function formatDelta(points) {
+  const numeric = Number(points);
+  if (!Number.isFinite(numeric)) return '0';
+  if (numeric > 0) return `+${numeric}`;
+  return String(numeric);
+}
+
+function renderScoreChange(scoreChange) {
+  const panel = byId('scoreChangePanel');
+  const headline = byId('scoreChangeHeadline');
+  const list = byId('scoreChangeList');
+  panel.classList.add('hidden');
+  panel.classList.remove('up', 'down');
+  list.classList.add('hidden');
+  list.innerHTML = '';
+
+  if (!scoreChange || !scoreChange.has_previous_scan) {
+    return;
+  }
+
+  const delta = Number(scoreChange.delta_points || 0);
+  const previousScore = Number(scoreChange.previous_risk_score || 0);
+  const previousAt = formatDate(scoreChange.previous_scanned_at);
+  const direction = String(scoreChange.direction || 'same');
+  if (direction === 'up' || delta > 0) {
+    panel.classList.add('up');
+    headline.textContent = `Risk increased ${formatDelta(delta)} points (from ${previousScore}) since ${previousAt}.`;
+  } else if (direction === 'down' || delta < 0) {
+    panel.classList.add('down');
+    headline.textContent = `Risk decreased ${formatDelta(delta)} points (from ${previousScore}) since ${previousAt}.`;
+  } else {
+    headline.textContent = `Risk score unchanged since ${previousAt} (${previousScore}).`;
+  }
+
+  const topChanges = Array.isArray(scoreChange.top_check_deltas) ? scoreChange.top_check_deltas : [];
+  if (topChanges.length) {
+    topChanges.slice(0, 3).forEach((item) => {
+      const li = document.createElement('li');
+      li.className = 'score-change-item';
+      const deltaText = formatDelta(item.delta_points);
+      li.textContent = `${item.check_name}: ${deltaText} (${item.previous_points} -> ${item.current_points})`;
+      list.appendChild(li);
+    });
+    list.classList.remove('hidden');
+  }
+
+  panel.classList.remove('hidden');
 }
 
 function renderTopReductions(topReductions) {

@@ -104,6 +104,67 @@ def _serialize_engine_check(check, include_evidence: bool) -> dict[str, Any]:
     return payload
 
 
+def _build_score_change_payload(scan: Scan) -> dict[str, Any]:
+    previous_scan = scan.site.scans.exclude(pk=scan.pk).order_by('-scanned_at').first()
+    if not previous_scan:
+        return {
+            'has_previous_scan': False,
+            'previous_risk_score': None,
+            'delta_points': 0,
+            'direction': 'same',
+            'previous_scanned_at': None,
+            'top_check_deltas': [],
+        }
+
+    current_points_by_name: dict[str, int] = {}
+    current_explanations: dict[str, str] = {}
+    for check in scan.check_results.all():
+        current_points_by_name[check.check_name] = int(check.risk_points)
+        current_explanations[check.check_name] = str(check.explanation or '')
+
+    previous_points_by_name: dict[str, int] = {}
+    previous_explanations: dict[str, str] = {}
+    for check in previous_scan.check_results.all():
+        previous_points_by_name[check.check_name] = int(check.risk_points)
+        previous_explanations[check.check_name] = str(check.explanation or '')
+
+    all_check_names = set(current_points_by_name.keys()) | set(previous_points_by_name.keys())
+    check_deltas = []
+    for name in all_check_names:
+        current_points = int(current_points_by_name.get(name, 0))
+        previous_points = int(previous_points_by_name.get(name, 0))
+        delta_points = current_points - previous_points
+        if delta_points == 0:
+            continue
+        check_deltas.append({
+            'check_name': name,
+            'delta_points': delta_points,
+            'previous_points': previous_points,
+            'current_points': current_points,
+            'trend': 'increased' if delta_points > 0 else 'decreased',
+            'current_explanation': current_explanations.get(name) or previous_explanations.get(name) or '',
+        })
+
+    check_deltas.sort(key=lambda item: abs(int(item['delta_points'])), reverse=True)
+
+    delta_points_total = int(scan.risk_score) - int(previous_scan.risk_score)
+    if delta_points_total > 0:
+        direction = 'up'
+    elif delta_points_total < 0:
+        direction = 'down'
+    else:
+        direction = 'same'
+
+    return {
+        'has_previous_scan': True,
+        'previous_risk_score': int(previous_scan.risk_score),
+        'delta_points': delta_points_total,
+        'direction': direction,
+        'previous_scanned_at': previous_scan.scanned_at,
+        'top_check_deltas': check_deltas[:5],
+    }
+
+
 def build_scan_response(scan: Scan, include_checks: bool = True, include_evidence: bool = True) -> dict[str, Any]:
     check_results = list(scan.check_results.all().order_by('-risk_points'))
     top_reasons = [
@@ -127,6 +188,7 @@ def build_scan_response(scan: Scan, include_checks: bool = True, include_evidenc
         'score_confidence': scan.score_confidence,
         'last_scanned_at': scan.scanned_at,
         'disclaimer': DISCLAIMER_TEXT,
+        'score_change': _build_score_change_payload(scan),
     }
     payload['checks'] = full_breakdown if include_checks else []
     return payload
@@ -168,6 +230,14 @@ def build_private_scan_response(
         'disclaimer': f'{DISCLAIMER_TEXT} Private force-check results are only visible to this signed-in user.',
         'checks': full_breakdown if include_checks else [],
         'private_result': True,
+        'score_change': {
+            'has_previous_scan': False,
+            'previous_risk_score': None,
+            'delta_points': 0,
+            'direction': 'same',
+            'previous_scanned_at': None,
+            'top_check_deltas': [],
+        },
     }
     return payload
 

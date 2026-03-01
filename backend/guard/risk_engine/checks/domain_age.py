@@ -43,10 +43,10 @@ class DomainAgeCheck(BaseRiskCheck):
 
         if age_days > 730:
             return self.output(
-                risk_points=-5,
+                risk_points=0,
                 confidence=0.8,
                 severity=Severity.INFO,
-                explanation='Domain appears older than 2 years.',
+                explanation='Domain appears older than 2 years, which is not sufficient as a standalone trust reduction.',
                 evidence={'age_days': age_days, 'creation_date': creation_date.isoformat()},
             )
 

@@ -89,7 +89,7 @@ class AbnValidationCheck(BaseRiskCheck):
 
         if domain_abn and domain_abn_matches:
             return self.output(
-                risk_points=-10,
+                risk_points=-6,
                 confidence=0.9,
                 severity=Severity.INFO,
                 explanation='Displayed ABN matches the ABN associated with this .au domain registration.',
@@ -116,7 +116,7 @@ class AbnValidationCheck(BaseRiskCheck):
 
         if valid_primary_candidates:
             return self.output(
-                risk_points=-6 if au_context else -2,
+                risk_points=-3 if au_context else -1,
                 confidence=0.8,
                 severity=Severity.INFO,
                 explanation='At least one ABN candidate passed checksum validation.',

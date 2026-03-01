@@ -208,6 +208,40 @@ h1 {
   font-size: 11px;
 }
 
+.score-change {
+  margin-top: 10px;
+  border-radius: 8px;
+  padding: 8px;
+  border: 1px solid rgba(167, 189, 214, 0.28);
+  background: rgba(8, 17, 30, 0.46);
+}
+
+.score-change.up {
+  border-color: rgba(220, 38, 38, 0.4);
+  background: rgba(220, 38, 38, 0.12);
+}
+
+.score-change.down {
+  border-color: rgba(22, 163, 74, 0.4);
+  background: rgba(22, 163, 74, 0.12);
+}
+
+.score-change-headline {
+  margin: 0;
+  font-size: 12px;
+  color: #d8e7fb;
+}
+
+.score-change-list {
+  margin-top: 8px;
+}
+
+.score-change-item {
+  margin: 0 0 5px;
+  font-size: 11px;
+  color: #d8e7fb;
+}
+
 .reputation-banner {
   margin-top: 10px;
   border-radius: 8px;

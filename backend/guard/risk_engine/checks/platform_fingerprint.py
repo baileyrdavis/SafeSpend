@@ -25,10 +25,10 @@ class EcommercePlatformFingerprintCheck(BaseRiskCheck):
 
         if platform in KNOWN_PLATFORMS:
             return self.output(
-                risk_points=-3,
-                confidence=0.7,
+                risk_points=0,
+                confidence=0.72,
                 severity=Severity.INFO,
-                explanation='Store appears to use a known e-commerce platform.',
+                explanation='Store appears to use a known e-commerce platform, which is not a standalone trust signal.',
                 evidence={'platform': platform},
             )
 

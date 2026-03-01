@@ -1,11 +1,13 @@
 from types import SimpleNamespace
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from guard.risk_engine.checks.abn_validation import AbnValidationCheck
+from guard.risk_engine.checks.evidence_coverage_guardrail import EvidenceCoverageGuardrailCheck
 from guard.risk_engine.checks.payment_form_security import PaymentFormSecurityCheck
 from guard.risk_engine.checks.payment_method_risk import PaymentMethodRiskCheck
 from guard.risk_engine.checks.payment_processor_reputation import PaymentProcessorReputationCheck
+from guard.risk_engine.checks.threat_feed_reputation import ThreatFeedReputationCheck
 
 
 def _context():
@@ -73,7 +75,7 @@ class ScamwatchAlignedChecksTests(TestCase):
             signals={'payment_methods': {'methods': ['paypal', 'stripe']}},
             context=_context(),
         )
-        self.assertLess(output.risk_points, 0)
+        self.assertEqual(output.risk_points, 0)
 
     def test_payment_method_check_does_not_penalize_low_confidence_risky_signal(self):
         check = PaymentMethodRiskCheck()
@@ -194,4 +196,86 @@ class ScamwatchAlignedChecksTests(TestCase):
             },
             context=_context(),
         )
-        self.assertLess(output.risk_points, 0)
+        self.assertEqual(output.risk_points, 0)
+
+    def test_evidence_coverage_guardrail_penalizes_thin_signals(self):
+        check = EvidenceCoverageGuardrailCheck()
+        output = check.run(
+            domain='example.com',
+            signals={
+                '_sitewide_enrichment': {'page_count': 1},
+                'policies': {'refund': False, 'privacy': False, 'terms': False},
+                'contact': {'email': False, 'phone': False, 'contact_page': False, 'address': False},
+                'dom_features': {'checkout_route': False, 'cart_route': False, 'checkout_ui_markers': False},
+                'payment_methods': {'methods': []},
+                'payment_form_security': {'card_form_signal_count': 0},
+            },
+            context=_context(),
+        )
+        self.assertGreaterEqual(output.risk_points, 24)
+
+    def test_evidence_coverage_guardrail_allows_well_covered_scan(self):
+        check = EvidenceCoverageGuardrailCheck()
+        output = check.run(
+            domain='example.com',
+            signals={
+                '_sitewide_enrichment': {'page_count': 4},
+                'policies': {'refund': True, 'privacy': True, 'terms': True},
+                'contact': {'email': True, 'phone': True, 'contact_page': True, 'address': True},
+                'dom_features': {'checkout_route': True, 'cart_route': True, 'checkout_ui_markers': True},
+                'payment_methods': {'methods': ['paypal']},
+                'payment_form_security': {'card_form_signal_count': 1},
+            },
+            context=_context(),
+        )
+        self.assertEqual(output.risk_points, 0)
+
+    @override_settings(GUARD_ENABLE_THREAT_FEED_CHECK=True)
+    def test_threat_feed_check_flags_reported_domain(self):
+        check = ThreatFeedReputationCheck()
+        context = SimpleNamespace(
+            site=None,
+            previous_scan=None,
+            external=SimpleNamespace(
+                au_domain_eligibility={},
+                threat_feed_reputation={
+                    'matched': True,
+                    'matched_feeds': ['openphish'],
+                    'matched_host': 'evil.example.com',
+                    'matched_root_domain': 'example.com',
+                    'feed_counts': {'openphish': 1000, 'urlhaus_hostfile': 2000},
+                    'feed_errors': {},
+                },
+            ),
+        )
+        output = check.run(
+            domain='evil.example.com',
+            signals={},
+            context=context,
+        )
+        self.assertGreaterEqual(output.risk_points, 60)
+
+    @override_settings(GUARD_ENABLE_THREAT_FEED_CHECK=True)
+    def test_threat_feed_check_no_match_is_neutral(self):
+        check = ThreatFeedReputationCheck()
+        context = SimpleNamespace(
+            site=None,
+            previous_scan=None,
+            external=SimpleNamespace(
+                au_domain_eligibility={},
+                threat_feed_reputation={
+                    'matched': False,
+                    'matched_feeds': [],
+                    'matched_host': '',
+                    'matched_root_domain': 'example.com',
+                    'feed_counts': {'openphish': 1000, 'urlhaus_hostfile': 2000},
+                    'feed_errors': {},
+                },
+            ),
+        )
+        output = check.run(
+            domain='example.com',
+            signals={},
+            context=context,
+        )
+        self.assertEqual(output.risk_points, 0)

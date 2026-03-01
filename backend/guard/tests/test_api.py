@@ -86,6 +86,35 @@ class ScanApiTests(TestCase):
         self.assertTrue(second.data['from_cache'])
         self.assertEqual(Site.objects.get(domain='example.com').scans.count(), 1)
 
+    @patch('guard.risk_engine.external.has_wayback_history', return_value=True)
+    @patch('guard.risk_engine.external.get_https_info', return_value={'has_https': True, 'self_signed': False, 'error': None})
+    @patch('guard.risk_engine.external.get_nameservers', return_value=['ns1.example.net', 'ns2.example.net'])
+    @patch('guard.risk_engine.external.get_au_domain_eligibility', return_value={})
+    @patch(
+        'guard.risk_engine.external.get_whois_data',
+        return_value={
+            'creation_date': datetime.now(timezone.utc) - timedelta(days=900),
+            'updated_date': datetime.now(timezone.utc) - timedelta(days=120),
+            'registrar': 'Example Registrar',
+        },
+    )
+    def test_scan_response_includes_score_change_between_runs(self, *_mocks):
+        first_payload = self.scan_payload('delta-hash-a')
+        first_payload['extracted_signals']['custom_checkout'] = False
+        first_response = self.client.post('/api/scan', first_payload, format='json')
+        self.assertEqual(first_response.status_code, 200)
+        self.assertIn('score_change', first_response.data)
+        self.assertFalse(first_response.data['score_change']['has_previous_scan'])
+
+        second_payload = self.scan_payload('delta-hash-b')
+        second_payload['extracted_signals']['custom_checkout'] = True
+        second_response = self.client.post('/api/scan', second_payload, format='json')
+        self.assertEqual(second_response.status_code, 200)
+        self.assertFalse(second_response.data['from_cache'])
+        self.assertTrue(second_response.data['score_change']['has_previous_scan'])
+        self.assertIsInstance(second_response.data['score_change']['delta_points'], int)
+        self.assertIn(second_response.data['score_change']['direction'], ['up', 'down', 'same'])
+
     @patch('guard.risk_engine.external.has_wayback_history', return_value=False)
     @patch('guard.risk_engine.external.get_https_info', return_value={'has_https': True, 'self_signed': False, 'error': None})
     @patch('guard.risk_engine.external.get_nameservers', return_value=['ns1.example.net'])
@@ -239,7 +268,7 @@ class ScanApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         brand_check = next((item for item in response.data['checks'] if item['check_name'] == 'Brand Impersonation Check'), None)
         self.assertIsNotNone(brand_check)
-        self.assertEqual(brand_check['risk_points'], -12)
+        self.assertEqual(brand_check['risk_points'], -8)
 
     @patch('guard.risk_engine.external.has_wayback_history', return_value=True)
     @patch('guard.risk_engine.external.get_https_info', return_value={'has_https': True, 'self_signed': False, 'error': None})
