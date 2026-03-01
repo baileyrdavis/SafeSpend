@@ -159,6 +159,11 @@ def _empty_sitewide_payload() -> dict[str, Any]:
             'cart_route': False,
             'checkout_ui_markers': False,
         },
+        'mixed_content': {
+            'http_resource_count': 0,
+            'suspected': False,
+            'sample_resources': [],
+        },
     }
 
 
@@ -230,6 +235,7 @@ def collect_sitewide_signals(domain: str, max_pages: int = 5) -> dict[str, Any]:
 
     payment_form = payload['payment_form_security']
     dom_features = payload['dom_features']
+    mixed_content = payload['mixed_content']
 
     for page in pages:
         html_lower = page.html.lower()
@@ -284,6 +290,7 @@ def collect_sitewide_signals(domain: str, max_pages: int = 5) -> dict[str, Any]:
         payment_form['secure_provider_detected'] = bool(payment_form['secure_provider_detected'] or provider_detected)
 
         path = urlparse(page.url).path.lower()
+        page_scheme = urlparse(page.url).scheme.lower()
         if any(f'/{hint}' in path for hint in ('checkout', 'payment', 'billing')):
             dom_features['checkout_route'] = True
         if any(f'/{hint}' in path for hint in ('cart', 'basket', 'order')):
@@ -310,6 +317,36 @@ def collect_sitewide_signals(domain: str, max_pages: int = 5) -> dict[str, Any]:
         abn_candidates.update(merged_abns)
         labeled_abns.update(labeled)
         unlabeled_abns.update(unlabeled)
+
+        if page_scheme == 'https':
+            mixed_refs = re.findall(
+                r'(?:src|href)\s*=\s*["\'](http://[^"\']+)["\']|url\((http://[^)]+)\)',
+                page.html,
+                re.IGNORECASE,
+            )
+            flat_refs: list[str] = []
+            for item in mixed_refs:
+                if isinstance(item, tuple):
+                    first = str(item[0] or '').strip()
+                    second = str(item[1] or '').strip()
+                    if first:
+                        flat_refs.append(first)
+                    if second:
+                        flat_refs.append(second)
+                else:
+                    value = str(item or '').strip()
+                    if value:
+                        flat_refs.append(value)
+            if flat_refs:
+                mixed_content['http_resource_count'] += len(flat_refs)
+                mixed_content['suspected'] = True
+                if len(mixed_content['sample_resources']) < 5:
+                    for value in flat_refs:
+                        if value in mixed_content['sample_resources']:
+                            continue
+                        mixed_content['sample_resources'].append(value)
+                        if len(mixed_content['sample_resources']) >= 5:
+                            break
 
     payment_form['trusted_providers'] = sorted(trusted_providers)[:8]
     payment_form['raw_card_form_risk'] = bool(
@@ -339,6 +376,7 @@ def collect_sitewide_signals(domain: str, max_pages: int = 5) -> dict[str, Any]:
     payload['shipping_destinations'] = sorted(destinations)
     payload['currency'] = currency
     payload['dom_features'] = dom_features
+    payload['mixed_content'] = mixed_content
 
     if len(_CACHE) >= _CACHE_MAX_SIZE:
         oldest_key = min(_CACHE, key=lambda key: _CACHE[key][0])
@@ -440,6 +478,18 @@ def merge_with_sitewide_signals(domain: str, extracted_signals: dict[str, Any]) 
         'checkout_route': bool(dom_features.get('checkout_route')) or bool(sitewide_dom_features.get('checkout_route')),
         'cart_route': bool(dom_features.get('cart_route')) or bool(sitewide_dom_features.get('cart_route')),
         'checkout_ui_markers': bool(dom_features.get('checkout_ui_markers')) or bool(sitewide_dom_features.get('checkout_ui_markers')),
+    }
+
+    mixed_content = base.get('mixed_content') or {}
+    sitewide_mixed_content = sitewide.get('mixed_content') or {}
+    base['mixed_content'] = {
+        'http_resource_count': int(mixed_content.get('http_resource_count') or 0) + int(sitewide_mixed_content.get('http_resource_count') or 0),
+        'suspected': bool(mixed_content.get('suspected')) or bool(sitewide_mixed_content.get('suspected')),
+        'sample_resources': _merge_unique_list(
+            mixed_content.get('sample_resources') or [],
+            sitewide_mixed_content.get('sample_resources') or [],
+            limit=6,
+        ),
     }
 
     base['_sitewide_enrichment'] = {

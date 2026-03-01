@@ -47,6 +47,7 @@ const NOT_SUPPORTED_RETRY_INTERVAL_MS = 15000;
 const NOT_SUPPORTED_MAX_RETRIES = 2;
 const SCAN_PROGRESS_STALE_MS = 90 * 1000;
 const AUTH_POLL_MIN_GAP_MS = 2500;
+const CACHE_BYPASS_DOMAIN_SUFFIXES = ['badssl.com', 'demoblaze.com'];
 
 async function broadcastAuthStateUpdated() {
   try {
@@ -81,6 +82,14 @@ function normalizeDomain(domainOrUrl) {
   } catch (_error) {
     return String(domainOrUrl || '').replace(/^www\./, '').toLowerCase();
   }
+}
+
+function shouldBypassCacheForDomain(domain) {
+  const normalized = normalizeDomain(domain || '');
+  if (!normalized) {
+    return false;
+  }
+  return CACHE_BYPASS_DOMAIN_SUFFIXES.some((suffix) => normalized === suffix || normalized.endsWith(`.${suffix}`));
 }
 
 function randomInstallHash() {
@@ -1375,9 +1384,15 @@ async function resolveDomainSummary(tabId, domain, signals) {
   const rapidNavCooldownMs = 2 * 60 * 1000;
   const htmlHash = signals?.html_hash || null;
   const cache = await getCache();
+  const bypassCache = shouldBypassCacheForDomain(domain);
   const authState = await getAuthState();
   const authenticated = Boolean(authState?.access_token && isFreshTimestamp(authState.access_expires_at_ms));
   let cachedEntry = cache[domain];
+  if (bypassCache && cachedEntry) {
+    delete cache[domain];
+    await setCache(cache);
+    cachedEntry = null;
+  }
   if (authenticated && Boolean(cachedEntry?.summary?.preview_mode)) {
     delete cache[domain];
     await setCache(cache);
@@ -1385,13 +1400,13 @@ async function resolveDomainSummary(tabId, domain, signals) {
   }
   const scanKey = domain;
 
-  if (canUseCacheEntry(cachedEntry, htmlHash, ttlMs, now)) {
+  if (!bypassCache && canUseCacheEntry(cachedEntry, htmlHash, ttlMs, now)) {
     const cachedResult = withResultMetadata(cachedEntry.summary, true, false);
     await setBadge(tabId, cachedResult);
     return cachedResult;
   }
 
-  if (cachedEntry?.summary && cachedEntry?.timestamp && (now - cachedEntry.timestamp < rapidNavCooldownMs)) {
+  if (!bypassCache && cachedEntry?.summary && cachedEntry?.timestamp && (now - cachedEntry.timestamp < rapidNavCooldownMs)) {
     const recentResult = withResultMetadata({
       ...cachedEntry.summary,
       cooldown_active: true,
@@ -1942,6 +1957,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         const summary = await getSummaryForDomain(domain);
+        const tabStateForDomain = tabId === null ? null : tabStates[String(tabId)] || null;
+        const isExplicitlyUnsupported = String(tabStateForDomain?.kind || '') === 'not_supported';
         if (!summary) {
           const progress = tabId === null ? null : getScanProgress(tabId, domain);
           const privateEntry = tabId === null ? null : getPrivateResultForTab(tabId, domain, ownerKey);
@@ -2056,6 +2073,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             scan_progress: progress,
             page_state: pageState,
             auth: await getAuthStatePayload()
+          });
+          return;
+        }
+
+        if (isExplicitlyUnsupported) {
+          const pageState = tabStateForDomain || {
+            kind: 'not_supported',
+            reason: 'This page type is not currently supported.',
+          };
+          if (typeof tabId === 'number') {
+            await setTransientBadge(tabId, 'unsupported');
+          }
+          sendResponse({
+            ok: false,
+            error: pageState.reason || 'This page type is not currently supported.',
+            domain,
+            scan_in_progress: false,
+            page_state: pageState,
+            auth: await getAuthStatePayload(),
           });
           return;
         }
